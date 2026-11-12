@@ -63,6 +63,7 @@ export interface PlaceDetailDto {
   memo?: { text: string | null; updatedAt: string | null; updatedBy: string | null } | null;
   visibility?: string | null;
   address?: string | null;
+  phoneNumber?: string | null;
   policyVersion?: number | null;
   pendingRequests?: number | null;
 }
@@ -118,7 +119,8 @@ const toOverview = (d: PlaceDetailDto): PlaceOverview => ({
   source: (d.source ?? null) as PlaceOverview['source'],
   chips: d.chips ?? { certification: null, checkMethod: null, eventParticipation: null, hidden: d.visibility === 'HIDDEN' },
   summary: d.summary ?? { conditionCheckedAt: null, qrVisitCount: null, openRequestCount: typeof d.pendingRequests === 'number' ? d.pendingRequests : null, inquiryCount: null },
-  info: d.info ? toInfo(d.info) : { address: d.address ?? null, phone: null, channels: [] },
+  // 실제 BE 상세는 phoneNumber 로 와요
+  info: d.info ? toInfo(d.info) : { address: d.address ?? null, phone: d.phoneNumber ?? null, channels: [] },
   memo: toMemo(d.memo ?? null),
   policyVersion: typeof d.policyVersion === 'number' ? d.policyVersion : null,
 });
@@ -197,10 +199,12 @@ export async function getPlacePage(opts: { q?: string; stale?: boolean; cursor: 
     const page = paginate(rows, opts.cursor, limit);
     dto = await mockResponse({ sourceRatio: MOCK_SOURCE_RATIO, items: page.items, nextCursor: page.nextCursor });
   } else {
-    // 운영자 업체 목록 조회 — GET /admin/stores?keyword&regionId&visibility&page → { items: [{ storeId, name, visibility }] }
-    // '확인일 30일 지남' 필터는 이 API 에 없어 보내지 않아요. page 시작값 · 다음 페이지 근거가 없어 첫 페이지만 보여 줘요 (백엔드 확인 사항).
-    const { data } = await apiClient.get<{ items?: PlaceListItemDto[] | null }>('/admin/stores', { params: { keyword: opts.q?.trim() || undefined } });
-    return { sourceRatio: [], items: (data?.items ?? []).map(toListItem).filter((x) => x.id !== ''), nextCursor: null };
+    // 운영자 업체 목록 조회 — GET /admin/stores?keyword&regionId&visibility&page → { items: [{ storeId, name, visibility, regionId, verificationStatus }] } (20건씩, page 1부터)
+    // '확인일 30일 지남' 필터는 이 API 에 없어 보내지 않아요.
+    const pageNo = opts.cursor ? Number(opts.cursor) : 1;
+    const { data } = await apiClient.get<{ items?: PlaceListItemDto[] | null }>('/admin/stores', { params: { keyword: opts.q?.trim() || undefined, page: pageNo } });
+    const rows = data?.items ?? [];
+    return { sourceRatio: [], items: rows.map(toListItem).filter((x) => x.id !== ''), nextCursor: rows.length >= 20 ? String(pageNo + 1) : null };
   }
   return { sourceRatio: dto.sourceRatio ?? [], items: dto.items.map(toListItem), nextCursor: dto.nextCursor };
 }
@@ -213,7 +217,9 @@ export async function getPlaceOverview(id: string): Promise<PlaceOverview> {
 
 /** F-OPLACE-09 입장 조건 조회 */
 export async function getPlaceConditions(id: string): Promise<PlaceConditionsView> {
-  const dto = USE_MOCK ? await mockResponse(mockConditionsDto(id)) : (await apiClient.get<PlaceConditionsDto>(`/admin/places/${enc(id)}/conditions`)).data;
+  // 실제 BE 에는 운영자가 업체의 현재 정책(규칙)을 읽는 API 가 없어요 (요청 상세의 currentPolicy 만 있음) — 백엔드 확인 사항
+  if (!USE_MOCK) throw mockError('ADMIN_POLICY_READ_UNSUPPORTED');
+  const dto = await mockResponse(mockConditionsDto(id));
   return toConditionsView(dto);
 }
 
@@ -224,22 +230,25 @@ export async function getPlaceHistoryPage(id: string, cursor: string | null): Pr
     mockDetailDto(id);
     dto = await mockResponse(paginate(MOCK_PLACE_HISTORY[id] ?? [], cursor, 20));
   } else {
-    // 업체 정책 변경 이력 — GET /admin/stores/{storeId}/policy-history → { items: [{ policyId, version, changedBy, requestId }] }
-    // 정책 이력만이라 화면에서 '입장 정책 변경 이력'으로 구분해요. 다음 페이지 근거가 없어 첫 페이지만 보여 줘요.
-    if (cursor) return { items: [], nextCursor: null };
-    const { data } = await apiClient.get<{ items?: { policyId?: string | number; version?: number; changedBy?: string | null; requestId?: string | number | null; changedAt?: string | null }[] | null }>(`/admin/stores/${enc(id)}/policy-history`);
+    // 업체 정책 변경 이력 — GET /admin/stores/{storeId}/policy-history?page → { items: [{ policyId, version, changedBy, requestId, sourceText, createdAt }] } (20건씩)
+    const pageNo = cursor ? Number(cursor) : 1;
+    const { data } = await apiClient.get<{ items?: { policyId?: string | number; version?: number; changedBy?: string | null; requestId?: string | number | null; sourceText?: string | null; createdAt?: string | null; changedAt?: string | null }[] | null }>(
+      `/admin/stores/${enc(id)}/policy-history`,
+      { params: { page: pageNo } },
+    );
+    const rows = data?.items ?? [];
     const CHANGED_BY: Record<string, string> = { OPERATOR: '운영자 직접 변경', BUSINESS: '업체 요청 승인', AI: 'AI 후보 승인' };
     return {
-      items: (data?.items ?? []).map((h, i) => ({
+      items: rows.map((h, i) => ({
         id: toId(h.policyId) ?? `policy-${i}`,
         type: '입장 정책 변경',
-        at: h.changedAt ?? '',
+        at: h.createdAt ?? h.changedAt ?? '',
         actorName: null,
         result: [typeof h.version === 'number' ? `정책 버전 ${h.version}` : null, h.changedBy ? (CHANGED_BY[h.changedBy] ?? h.changedBy) : null].filter(Boolean).join(' · ') || null,
-        changes: null,
+        changes: h.sourceText?.trim() ? `원문: ${h.sourceText.trim()}` : null,
         requestId: toId(h.requestId),
       })),
-      nextCursor: null,
+      nextCursor: rows.length >= 20 ? String(pageNo + 1) : null,
     };
   }
   return { items: dto.items.map(toHistory), nextCursor: dto.nextCursor };
@@ -252,7 +261,8 @@ export async function getPlaceAccount(id: string): Promise<PlaceAccountView> {
     mockDetailDto(id);
     dto = await mockResponse(MOCK_PLACE_ACCOUNTS[id] ?? { placeId: id, account: null, qr: null });
   } else {
-    dto = (await apiClient.get<PlaceAccountDto>(`/admin/places/${enc(id)}/account`)).data;
+    // 실제 BE 에 업체 계정 · QR 조회 API 가 없어요 (업체 상세의 manager · qrStatus 만 있음)
+    throw mockError('FIELD_NOT_SUPPORTED', { field: 'account' });
   }
   return toAccount(dto);
 }
@@ -334,8 +344,10 @@ export async function updatePlaceConditions(id: string, baseVersion: number, bef
     });
     return toConditionsView(await mockResponse(cur));
   }
-  const { data } = await apiClient.put<PlaceConditionsDto>(`/admin/places/${enc(id)}/conditions`, body);
-  return toConditionsView(data);
+  // 실제 BE 는 POST /admin/stores/{storeId}/policy-changes { baseVersion, policy(전체), sourceText, reason } 로 정책 '전체'를 바꿔요.
+  // 운영자가 지금 정책을 읽을 API 가 없어 전체를 만들 수 없고, 일부만 보내면 기존 조건이 지워져서 보내지 않아요.
+  void body;
+  throw mockError('ADMIN_POLICY_READ_UNSUPPORTED');
 }
 
 /** F-OPLACE-06 운영 메모 저장 — 본문은 { text } */
@@ -345,8 +357,9 @@ export async function updatePlaceMemo(id: string, text: string): Promise<PlaceMe
     d.memo = { text, updatedAt: new Date().toISOString(), updatedBy: '운영팀' };
     return toMemo(await mockResponse(d.memo));
   }
-  const { data } = await apiClient.put<PlaceDetailDto['memo']>(`/admin/places/${enc(id)}/memo`, { text });
-  return toMemo(data);
+  // 운영 메모 API 가 실제 BE 에 없어요
+  void text;
+  throw mockError('FIELD_NOT_SUPPORTED', { field: 'memo' });
 }
 
 /** F-OPLACE-05 업체 정보 수정 — 바꾼 항목만 { address?, phone?, channels? } */
@@ -376,8 +389,8 @@ export async function reissuePlaceQr(id: string): Promise<PlaceAccountView['qr']
     acc.qr = { ...acc.qr, qrId: `${acc.qr.qrId.replace(/-R\d+$/, '')}-R${Math.floor(Math.random() * 90 + 10)}`, issuedAt: new Date().toISOString().slice(0, 10) };
     return (await mockResponse({ placeId: id, qr: acc.qr })).qr;
   }
-  const { data } = await apiClient.post<{ placeId: string; qr: PlaceAccountDto['qr'] }>(`/admin/places/${enc(id)}/qr/reissue`);
-  return data.qr;
+  // 운영자 QR 재발급 API 가 실제 BE 에 없어요 (업체 QR 재발급만 있음)
+  throw mockError('FIELD_NOT_SUPPORTED', { field: 'qr' });
 }
 
 /**

@@ -1,3 +1,4 @@
+import { USE_MOCK } from '@/api/client';
 import { useRef, useState, type DragEvent, type FormEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { createVerification, getTerms, getVerifications, lookupBusiness, updateVerification, type BusinessFields } from '@/api/account';
@@ -11,6 +12,7 @@ import { useFetch } from '@/hooks/useFetch';
 import { LoadState } from '@/components/common/LoadState';
 import { BUSINESS_CATEGORY_LABEL, type BusinessCategory, type SignupStatus, type Term } from '@/types';
 import { formatFileSize } from '@/utils/format';
+import { ServerBusinessForm } from './ServerBusinessForm';
 import { SignupSteps } from './SignupSteps';
 import styles from './Signup.module.css';
 
@@ -37,16 +39,20 @@ export function SignupBusinessPage() {
   const mode: Mode = raw === 'edit' || raw === 'resubmit' || raw === 'reapply' ? raw : 'new';
   const id = params.get('id');
   const list = useFetch(`verifications:${mode}:${id ?? ''}`, () => (mode === 'new' ? Promise.resolve([]) : getVerifications()));
-  const terms = useFetch('terms', getTerms);
+  // 서버 모드 인증 요청에는 약관이 없어요 (약관 동의는 가입 때 해요)
+  const terms = useFetch(`terms:${USE_MOCK}`, () => (USE_MOCK ? getTerms() : Promise.resolve([])));
 
   if (mode !== 'new') {
     if (list.status !== 'success') return <LoadState status={list.status} errorText={list.error?.message} onRetry={list.reload} />;
     const current = id ? list.data.find((v) => v.verificationId === id) : undefined;
     if (!current) return <Notice tone="warning">고칠 업체 인증 요청을 찾지 못했어요. 승인 대기 화면에서 다시 골라 주세요.</Notice>;
     if (!current[NEEDS[mode].flag]) return <Notice tone="warning">{NEEDS[mode].blocked}</Notice>;
+    // 서버 모드는 실제 BE 필드(대표자 · 매장 전화 · 좌표 · 사업자등록증 주소)를 받는 폼을 써요. 접수 상태 수정 API 는 없어요.
+    if (!USE_MOCK && mode !== 'edit') return <ServerBusinessForm key={`${mode}:${current.verificationId}`} mode={mode} current={current} />;
     if (mode === 'reapply' && terms.status !== 'success') return <LoadState status={terms.status} onRetry={terms.reload} />;
     return <BusinessForm key={`${mode}:${current.verificationId}`} mode={mode} current={current} terms={terms.data ?? []} />;
   }
+  if (!USE_MOCK) return <ServerBusinessForm key="new" mode="new" current={null} />;
   if (terms.status !== 'success') return <LoadState status={terms.status} errorText="약관을 불러오지 못했어요." onRetry={terms.reload} />;
   return <BusinessForm key="new" mode="new" current={null} terms={terms.data} />;
 }

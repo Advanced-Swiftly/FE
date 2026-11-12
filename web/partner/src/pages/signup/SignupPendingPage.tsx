@@ -23,7 +23,8 @@ type VerifyStatus = 'RECEIVED' | 'IN_REVIEW' | 'NEEDS_INFO' | 'APPROVED' | 'REJE
 const VIEW: Record<VerifyStatus, { title: string; text: string; icon: IconName; chip: string }> = {
   RECEIVED: {
     title: '업체 인증 요청을 받았어요',
-    text: '운영자가 확인을 시작하기 전까지는 제출한 내용을 고칠 수 있어요. 보통 1–2일 안에 확인이 끝나요.',
+    // 서버에는 접수 상태 수정 API 가 없어요 (보완 요청을 받으면 다시 제출할 수 있어요)
+    text: USE_MOCK ? '운영자가 확인을 시작하기 전까지는 제출한 내용을 고칠 수 있어요. 보통 1–2일 안에 확인이 끝나요.' : '운영자가 확인하고 있어요. 보완이 필요하면 이 화면에 사유가 표시되고 다시 제출할 수 있어요.',
     icon: 'clock',
     chip: '접수',
   },
@@ -146,7 +147,7 @@ export function SignupPendingPage() {
         <InfoList rows={s.info} />
         <p className={styles.small}>
           {s.status === 'RECEIVED'
-            ? '운영자가 확인을 시작하면 고칠 수 없어요.'
+            ? USE_MOCK ? '운영자가 확인을 시작하면 고칠 수 없어요.' : '보완 요청을 받으면 다시 제출할 수 있어요.'
             : s.status === 'IN_REVIEW'
               ? '확인 중에는 고칠 수 없어요. 보완이 필요하면 이 화면에 사유가 표시돼요.'
               : s.status === 'REJECTED'

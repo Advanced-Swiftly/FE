@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { USE_MOCK } from '@/api/client';
 import { applyAd } from '@/api/promo';
 import { Button } from '@/components/common/Button';
 import { Field, Select, TextInput } from '@/components/common/Field';
@@ -35,20 +36,25 @@ export function ApplyAdModal({ defaultArea, onClose, onDone }: Props) {
   const [weeks, setWeeks] = useState(2);
   // 오늘 0시 (팝업을 연 시점 기준)
   const [today] = useState(() => new Date(new Date().toDateString()).getTime());
+  // 서버 모드 — BE 광고 신청의 필수값 (광고 종류 · 광고 소재 URL) 과 전달사항
+  const [adType, setAdType] = useState<'BANNER' | 'RECOMMENDED' | ''>('');
+  const [creativeUrl, setCreativeUrl] = useState('');
+  const [message, setMessage] = useState('');
   const submit = useAction(applyAd);
 
   const start = new Date(`${startDate}T00:00:00`);
   const isMonday = start.getDay() === 1;
   const isPast = start.getTime() < today;
   // 매장 지역을 모르면(서버 응답에 없을 때) 서버가 신청 때 다시 확인해요.
-  const areaMismatch = store.area !== null && area !== store.area;
+  const areaMismatch = USE_MOCK && store.area !== null && area !== store.area;
+  const urlOk = /^https?:\/\/\S+$/.test(creativeUrl.trim());
   const end = new Date(start);
   end.setDate(end.getDate() + weeks * 7 - 1);
-  const canSubmit = area !== '' && isMonday && !isPast && !areaMismatch && !submit.pending;
+  const canSubmit = (USE_MOCK ? area !== '' : adType !== '' && urlOk && creativeUrl.trim().length <= 500 && message.length <= 500) && isMonday && !isPast && !areaMismatch && !submit.pending;
 
   const onSubmit = async () => {
     if (!canSubmit) return;
-    const res = await submit.run({ storeId: store.id, region: area, startDate, weeks });
+    const res = await submit.run({ storeId: store.id, region: area, startDate, weeks, ...(USE_MOCK ? {} : { adType: adType || undefined, creativeUrl: creativeUrl.trim(), message }) });
     if (res.ok) onDone(res.data.id);
   };
 
@@ -60,7 +66,7 @@ export function ApplyAdModal({ defaultArea, onClose, onDone }: Props) {
       kicker="광고 신청 · 1주 단위"
       footer={
         <div className={styles.footerBetween}>
-          <span className={styles.muted}>검토 시작 전까지 기간을 바꾸거나 취소할 수 있어요</span>
+          <span className={styles.muted}>{USE_MOCK ? '검토 시작 전까지 기간을 바꾸거나 취소할 수 있어요' : '검토 시작 전(접수 · 보완 요청)까지 취소할 수 있어요'}</span>
           <div className={styles.footerButtons}>
             <Button variant="secondary" onClick={onClose}>
               취소
@@ -91,6 +97,7 @@ export function ApplyAdModal({ defaultArea, onClose, onDone }: Props) {
             ))}
           </Select>
         </Field>
+        {USE_MOCK ? (
         <Field label="노출 지역" htmlFor="ad-area" message={areaMismatch ? { tone: 'error', text: `매장이 있는 ${store.area} 지역만 신청할 수 있어요` } : null}>
           <Select id="ad-area" value={area} aria-invalid={areaMismatch || area === ''} onChange={(e) => setArea(e.target.value as Area | '')}>
             <option value="" disabled>
@@ -101,6 +108,17 @@ export function ApplyAdModal({ defaultArea, onClose, onDone }: Props) {
             ))}
           </Select>
         </Field>
+        ) : (
+          <Field label="광고 종류" htmlFor="ad-type">
+            <Select id="ad-type" value={adType} aria-invalid={adType === ''} onChange={(e) => setAdType(e.target.value as 'BANNER' | 'RECOMMENDED' | '')}>
+              <option value="" disabled>
+                광고 종류를 골라 주세요
+              </option>
+              <option value="RECOMMENDED">지도 추천 노출</option>
+              <option value="BANNER">배너</option>
+            </Select>
+          </Field>
+        )}
       </div>
       <div className={styles.twoCol}>
         <Field
@@ -120,6 +138,21 @@ export function ApplyAdModal({ defaultArea, onClose, onDone }: Props) {
           </Select>
         </Field>
       </div>
+      {!USE_MOCK && (
+        <>
+          <Field
+            label="광고 소재 URL"
+            htmlFor="ad-creative"
+            hint="광고에 쓸 이미지가 올라가 있는 https 주소를 적어 주세요 (파일 업로드는 아직 서버에 없어요)"
+            message={creativeUrl && !urlOk ? { tone: 'error', text: 'http(s):// 로 시작하는 주소를 적어 주세요' } : null}
+          >
+            <TextInput id="ad-creative" type="url" inputMode="url" placeholder="https://" value={creativeUrl} maxLength={500} aria-invalid={creativeUrl !== '' && !urlOk} onChange={(e) => setCreativeUrl(e.target.value)} />
+          </Field>
+          <Field label="전달사항 (선택)" htmlFor="ad-message" hint={`${message.length}/500`}>
+            <TextInput id="ad-message" value={message} maxLength={500} onChange={(e) => setMessage(e.target.value)} />
+          </Field>
+        </>
+      )}
       {/* 비용 · 결제 · 노출 단계는 명세에서 후순위라(1.2절 · WAD-2 · 3) 금액이나 노출 약속을 보여 주지 않아요. */}
       <Notice>신청하면 운영자가 검토해요. 비용 · 결제 · 노출 시작은 아직 정해지지 않아 결과는 신청 내역에서 안내해요.</Notice>
       {submit.error && (

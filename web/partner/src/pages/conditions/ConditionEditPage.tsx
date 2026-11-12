@@ -1,3 +1,5 @@
+import { USE_MOCK } from '@/api/client';
+import { ServerConditionEditPage } from './ServerConditions';
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { buildChanges, getConditions, previewVerdicts, requestConditionChange, resubmitConditionRequest } from '@/api/conditions';
@@ -44,7 +46,12 @@ import { formatFileSize } from '@/utils/format';
 import styles from './ConditionEditPage.module.css';
 
 /** UI-W-011 입장 조건 수정 요청 (F-WREQ-03) · ?request= 이면 보완 다시 보내기 (F-WREQ-06) */
+/** 서버 모드는 실제 BE 정책 구조(견종 · 준비물 · 예방접종)를 쓰는 화면으로 바꿔요 */
 export function ConditionEditPage() {
+  return USE_MOCK ? <MockConditionEditPage /> : <ServerConditionEditPage />;
+}
+
+function MockConditionEditPage() {
   const { store } = useCurrentStore();
   const [params] = useSearchParams();
   const requestId = params.get('request');

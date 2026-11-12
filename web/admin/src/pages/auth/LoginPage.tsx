@@ -1,3 +1,4 @@
+import { USE_MOCK } from '@/api/client';
 import { useState, type FormEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { adminLogin } from '@/api/auth';
@@ -32,8 +33,8 @@ export function LoginPage() {
         <h1 id="admin-login-title" className={styles.title}>
           운영자 로그인
         </h1>
-        <Field label="아이디" htmlFor="admin-id">
-          <TextInput id="admin-id" autoComplete="username" value={id} onChange={(e) => setId(e.target.value)} />
+        <Field label={USE_MOCK ? '아이디' : '휴대폰 번호'} htmlFor="admin-id">
+          <TextInput id="admin-id" autoComplete="username" inputMode={USE_MOCK ? undefined : 'tel'} placeholder={USE_MOCK ? undefined : '01012345678'} value={id} onChange={(e) => setId(e.target.value)} />
         </Field>
         <Field label="비밀번호" htmlFor="admin-pw">
           <TextInput id="admin-pw" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />

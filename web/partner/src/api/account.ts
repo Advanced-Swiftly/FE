@@ -2,7 +2,7 @@ import { MOCK_ACCOUNT, MOCK_TERMS, MOCK_VERIFICATIONS } from '@/mocks/inquiries'
 import { BUSINESS_CATEGORY_LABEL, type Account, type BusinessCategory, type BusinessLookup, type SignupStatus, type Term } from '@/types';
 import { apiClient, mockResponse, USE_MOCK } from './client';
 import { mockError } from './errors';
-import { toId } from './ids';
+import { toId, type RawId } from './ids';
 import { clearSession, getSession, setSession, updateSession, type Session } from './session';
 
 // 경로 · 필드 이름은 명세 F-WAUTH · F-WACC 최종본 기준이에요 ([제안] 표시가 많아 백엔드 확정 후 다시 맞춰 주세요).
@@ -23,6 +23,12 @@ interface AuthResponseDto {
   accessToken: string;
   refreshToken: string;
   user: AuthUserDto;
+}
+/** 실제 BE 로그인 응답 (AuthDtos.LoginResponse) */
+interface LoginResponseDto {
+  accessToken: string;
+  refreshToken: string;
+  user: { userId?: string | number | null; role?: string | null; name?: string | null } | null;
 }
 /** 내 프로필 조회 응답 (GET /users/me) — placeCounts 는 이전 명세 값이라 올 때만 써요 */
 interface MeDto {
@@ -91,8 +97,38 @@ export async function login(loginId: string, password: string, keep = true): Pro
     const res = loginId.includes('new') ? mockAuth(loginId, false, false) : loginId.includes('pending') ? mockAuth(loginId, true, false) : mockAuth(loginId, true, true);
     return saveAuth(await mockResponse(res, 400), keep);
   }
-  const { data } = await apiClient.post<AuthResponseDto>('/business/auth/login', { loginId, password });
-  return saveAuth(data, keep);
+  // 공통 로그인 — POST /auth/login { phoneNumber, password } → { user: { userId, role, name }, accessToken, refreshToken }
+  const { data } = await apiClient.post<LoginResponseDto>('/auth/login', { phoneNumber: digitsOnly(loginId), password });
+  if (data.user?.role !== 'BUSINESS') {
+    // 업체 관리자 계정이 아니면 받은 토큰을 바로 무효화하고 로그인하지 않아요
+    await apiClient.post('/auth/logout', { refreshToken: data.refreshToken }, { headers: { Authorization: `Bearer ${data.accessToken}` } }).catch(() => undefined);
+    throw mockError('ROLE_NOT_ALLOWED');
+  }
+  setSession({ accessToken: data.accessToken, refreshToken: data.refreshToken, role: 'BUSINESS', loginId: data.user.name || digitsOnly(loginId) }, keep);
+  try {
+    return await refreshPartnerState();
+  } catch (e) {
+    // 이동할 화면을 정하지 못하면 로그인 상태를 남기지 않아요 (다시 시도하게)
+    clearSession();
+    throw e;
+  }
+}
+
+/**
+ * 로그인 뒤 갈 화면을 정할 값 — 로그인 응답에는 없어서 BE 목록 두 개로 정해요.
+ * - GET /business/stores → { stores } : 승인된 인증 요청이 있는 매장 (1개 이상이면 대시보드)
+ * - GET /business/verifications → { items } : 보낸 인증 요청 (있으면 승인 대기 · 보완, 없으면 업체 인증)
+ */
+export async function refreshPartnerState(): Promise<Session> {
+  const { data: stores } = await apiClient.get<{ stores?: unknown[] | null }>('/business/stores');
+  const hasApprovedPlace = Array.isArray(stores?.stores) && stores.stores.length > 0;
+  let hasVerificationRequest = hasApprovedPlace;
+  if (!hasApprovedPlace) {
+    const { data: v } = await apiClient.get<{ items?: unknown[] | null }>('/business/verifications');
+    hasVerificationRequest = Array.isArray(v?.items) && v.items.length > 0;
+  }
+  updateSession({ hasApprovedPlace, hasVerificationRequest });
+  return getSession()!;
 }
 
 /** F-WAUTH-08 로그아웃. 서버 요청이 실패해도 이 브라우저의 로그인은 지워요. */
@@ -236,6 +272,8 @@ function formatBizNo(n: string) {
 }
 
 function toInfo(v: VerificationDto) {
+  // 서버 모드: BE 인증 목록 · 상세에는 상호명만 있어요. 없는 항목(지역 · 업종 · 주소 · 파일)을 '선택 안 됨'처럼 보여 주지 않아요
+  if (!USE_MOCK) return [{ label: '상호명', value: v.businessName || '—' }];
   return [
     { label: '상호명', value: v.businessName },
     { label: '사업자등록번호', value: v.businessNumber ? formatBizNo(v.businessNumber) : '—' },
@@ -249,6 +287,11 @@ function toInfo(v: VerificationDto) {
 export function toSignupStatus(v: VerificationDto): SignupStatus {
   // 보완 상태 표기 두 가지(NEEDS_SUPPLEMENT · NEEDS_INFO)를 화면에서는 하나로 다뤄요
   const status = v.status === 'NEEDS_SUPPLEMENT' ? 'NEEDS_INFO' : v.status;
+  // 실제 BE 응답에는 가능 여부가 없어서 BE 규칙대로 정해요:
+  // 보완 제출(POST …/resubmit)은 NEEDS_SUPPLEMENT 일 때만, 반려된 사업자번호만 새로 신청 가능, 접수 상태 수정 API 는 없어요.
+  if (!USE_MOCK) {
+    v = { ...v, canEdit: v.canEdit ?? false, canResubmit: v.canResubmit ?? status === 'NEEDS_INFO', canReapply: v.canReapply ?? status === 'REJECTED' };
+  }
   const filled = { ...v, businessNumber: v.businessNumber ?? '', region: v.region ?? '' };
   return {
     verificationId: toId(v.verificationId) ?? '',
@@ -351,6 +394,51 @@ export async function updateVerification(verificationId: string, before: Busines
   return toSignupStatus(dto);
 }
 
+// ─── 실제 BE 사업자 인증 (서버 모드 전용) ─────────────
+
+/** 사업자 인증 요청 · 보완 제출에 필요한 값 (BE VerificationCreateRequest · VerificationResubmitRequest) */
+export interface ServerVerificationInput {
+  businessNumber: string;
+  businessName: string;
+  representativeName: string;
+  /** 사업자등록증 파일 주소 — http(s) URL (BE 에 파일 업로드 API 가 없어 주소로 받아요) */
+  documentUrl: string;
+  store: { name: string; address: string; phone: string; latitude: string; longitude: string };
+}
+
+const toNumber = (v: string) => (v.trim() === '' ? undefined : Number(v));
+
+/**
+ * 사업자 인증 요청 — POST /business/verifications
+ * { businessNumber, businessName, representativeName, documentUrl, store: { name, address, phone, latitude, longitude } } → { verificationId, status }
+ */
+export async function createServerVerification(input: ServerVerificationInput): Promise<string> {
+  const body = {
+    businessNumber: digitsOnly(input.businessNumber),
+    businessName: input.businessName.trim(),
+    representativeName: input.representativeName.trim(),
+    documentUrl: input.documentUrl.trim(),
+    store: { name: input.store.name.trim(), address: input.store.address.trim(), phone: input.store.phone.trim(), latitude: toNumber(input.store.latitude), longitude: toNumber(input.store.longitude) },
+  };
+  const { data } = await apiClient.post<{ verificationId: RawId; status: string }>('/business/verifications', body);
+  updateSession({ hasVerificationRequest: true });
+  return toId(data.verificationId) ?? '';
+}
+
+/**
+ * 보완 제출 — POST /business/verifications/{verificationId}/resubmit { documentUrl(필수), store? }
+ * store 는 바꾼 항목만 보내요 (BE 는 보낸 항목만 고치고 나머지는 그대로 둬요).
+ */
+export async function resubmitServerVerification(verificationId: string, documentUrl: string, store: Partial<ServerVerificationInput['store']>): Promise<void> {
+  const s: Record<string, unknown> = {};
+  if (store.name?.trim()) s.name = store.name.trim();
+  if (store.address?.trim()) s.address = store.address.trim();
+  if (store.phone?.trim()) s.phone = store.phone.trim();
+  if (store.latitude?.trim()) s.latitude = Number(store.latitude);
+  if (store.longitude?.trim()) s.longitude = Number(store.longitude);
+  await apiClient.post(`/business/verifications/${encodeURIComponent(verificationId)}/resubmit`, { documentUrl: documentUrl.trim(), ...(Object.keys(s).length ? { store: s } : {}) });
+}
+
 /** F-WAUTH-11 내 업체 인증 요청 전체 (최근 제출 순) */
 /** 사업자 인증 상세 조회 — GET /business/verifications/{verificationId} → { verificationId, status, reviewComment, … } */
 export async function getVerification(verificationId: string): Promise<SignupStatus> {
@@ -437,7 +525,9 @@ export async function changePassword(currentPassword: string, newPassword: strin
     await mockResponse(null);
     return;
   }
-  await apiClient.put('/business/me/password', { currentPassword, newPassword });
+  // 실제 BE 에 비밀번호 변경 API 가 없어요 (백엔드 확인 사항) — 없는 경로로 보내지 않아요
+  void newPassword;
+  throw mockError('FIELD_NOT_SUPPORTED', { field: 'password' });
 }
 
 /** 탈퇴 — 성공하면 로그인도 지워요 */

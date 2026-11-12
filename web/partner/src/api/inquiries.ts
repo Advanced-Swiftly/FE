@@ -107,7 +107,7 @@ export async function getFaqs(): Promise<Faq[]> {
  * F-WQNA-01 문의 보내기 — multipart. JSON 부분은 { type, relatedRequest, title, content, placeId }, 파일은 files (최대 3개).
  * JSON 부분 · 파일 부분의 이름은 명세에 없어 백엔드 확인 사항이에요.
  */
-export async function createInquiry(input: NewInquiry, files: File[] = []): Promise<{ id: string }> {
+export async function createInquiry(input: NewInquiry, files: File[] = [], attachmentUrls: string[] = []): Promise<{ id: string }> {
   const json = {
     type: input.type,
     relatedRequest: input.relatedRequest,
@@ -132,11 +132,13 @@ export async function createInquiry(input: NewInquiry, files: File[] = []): Prom
     const res = await mockResponse({ inquiryId: dto.inquiryId, status: dto.status, submittedAt: dto.submittedAt }, 500);
     return { id: res.inquiryId };
   }
-  // 1:1 문의 등록 — POST /inquiries { category, title, content, attachmentUrls? }
-  // 첨부는 먼저 올려 URL 로 보내야 하는데 업로드 방식이 정해지지 않아, 첨부가 있으면 보내지 않고 알려 줘요.
-  // 관련 요청 연결(relatedRequest)은 이 API 에 없어 보내지 않아요 (백엔드 확인 사항).
+  // 1:1 문의 등록 — POST /inquiries { category, title(필수 · 100자), content(4000자), attachmentUrls?(https · 5개) }
+  // BE 에 파일 업로드 API 가 없어 첨부는 https 주소로만 받아요. 관련 요청 연결(relatedRequest)은 이 API 에 없어요.
   if (files.length > 0) throw mockError('FIELD_NOT_SUPPORTED', { field: 'attachmentUrls' });
+  if (!json.title) throw mockError('INVALID_REQUEST', { field: 'title' });
+  const urls = attachmentUrls.map((u) => u.trim()).filter(Boolean);
+  if (urls.length > 5 || urls.some((u) => !/^https:\/\/\S+$/.test(u) || u.length > 500)) throw mockError('INVALID_REQUEST', { field: 'attachmentUrls' });
   const category = TYPE_TO_CATEGORY[input.type] ?? 'ETC';
-  const { data } = await apiClient.post<{ inquiryId: string | number; status: string }>('/inquiries', { category, title: json.title ?? input.type, content: json.content });
+  const { data } = await apiClient.post<{ inquiryId: string | number; status: string }>('/inquiries', { category, title: json.title, content: json.content, ...(urls.length ? { attachmentUrls: urls } : {}) });
   return { id: toId(data.inquiryId) ?? '' };
 }

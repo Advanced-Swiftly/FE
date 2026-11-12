@@ -78,7 +78,8 @@ function sharedRefresh(epoch: number): Promise<string | null> {
  * 업무 오류도 401 로 오기 때문에, 코드가 없거나 아래 코드일 때만 토큰을 갱신하고 다시 보내요.
  * 실제 서버의 토큰 만료 코드 이름은 백엔드 확인 사항이에요.
  */
-const TOKEN_ERROR_CODES = new Set(['UNAUTHORIZED', 'TOKEN_EXPIRED', 'EXPIRED_TOKEN', 'INVALID_TOKEN', 'INVALID_ACCESS_TOKEN']);
+// AUTH_001: 실제 BE 의 토큰 없음 · 만료 · 위조 응답 (JwtAuthenticationFilter → 401 AUTH_001)
+const TOKEN_ERROR_CODES = new Set(['AUTH_001', 'UNAUTHORIZED', 'TOKEN_EXPIRED', 'EXPIRED_TOKEN', 'INVALID_TOKEN', 'INVALID_ACCESS_TOKEN']);
 function isTokenError(data: unknown): boolean {
   const body = data as { code?: unknown; error?: { code?: unknown } } | null | undefined;
   const code = typeof body?.code === 'string' ? body.code : typeof body?.error?.code === 'string' ? body.error.code : null;

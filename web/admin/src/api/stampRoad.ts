@@ -60,8 +60,51 @@ export async function getStampPeriods(): Promise<StampPeriod[]> {
   if (USE_MOCK) return mockResponse(MOCK_PERIODS.map(mockPeriod));
   const { data } = await apiClient.get<{ items?: AdminEventDto[] | null }>('/admin/events');
   const items = data?.items ?? [];
-  const details = await Promise.all(items.map((e) => getAdminEvent(String(e.eventId)).catch(() => null)));
-  return items.map((e, i) => toPeriod(e, details[i]));
+  const [details, drawn] = await Promise.all([
+    Promise.all(items.map((e) => getAdminEvent(String(e.eventId)).catch(() => null))),
+    Promise.all(items.map((e) => isDrawn(String(e.eventId), e.status).catch(() => null))),
+  ]);
+  return items.map((e, i) => ({ ...toPeriod(e, details[i]), drawStatus: drawn[i] ? 'SUCCEEDED' : null }));
+}
+
+// ─── 서버 모드 추첨 상태 ───
+// BE 추첨(POST …/draw)은 이벤트 상태를 DRAWN 으로 바꾸지 않고, draw-result 는 추첨 전에도 200 · 빈 목록이에요.
+// 그래서 '추첨됨'은 이벤트 상태 DRAWN 이거나 응모 중 ENTERED 가 아닌 것(WON · NOT_SELECTED · CANCELED)이 있을 때로 봐요.
+type DrawEntryDto = { drawEntryId: string | number; userId?: string | number; status?: string; stampCount?: number; fulfillmentStatus?: string | null };
+type WinnerDto = { drawEntryId: string | number; userId?: string | number; prizeRank?: number | null; prizeName?: string | null; status?: string; fulfillmentStatus?: string | null; trackingNumber?: string | null };
+const BE_PAGE_SIZE = 20;
+
+async function drawEntriesPage(eventId: string, pageNo: number, status?: string) {
+  const { data } = await apiClient.get<{ items?: DrawEntryDto[] | null }>(`/admin/events/${encodeURIComponent(eventId)}/draw-entries`, { params: { status, page: pageNo } });
+  return data?.items ?? [];
+}
+
+async function allDrawEntries(eventId: string): Promise<DrawEntryDto[]> {
+  const all: DrawEntryDto[] = [];
+  for (let pageNo = 1; pageNo <= 100; pageNo += 1) {
+    const items = await drawEntriesPage(eventId, pageNo);
+    all.push(...items);
+    if (items.length < BE_PAGE_SIZE) break;
+  }
+  return all;
+}
+
+/**
+ * 이 브라우저에서 확인한 추첨 완료 기록 — POST …/draw 201 응답의 drawnAt · winnerCount, 또는 409 DRAW_ALREADY_EXECUTED.
+ * BE 는 추첨해도 이벤트 상태를 바꾸지 않고 결과 조회도 빈 목록일 수 있어서(당첨 0건 · 응모 0건),
+ * 응답으로 확인한 사실을 버리지 않고 결과 요약에 써요. (새로고침하면 사라져요)
+ */
+const drawnKnown = new Map<string, { drawnAt: string | null; winnerCount: number | null }>();
+
+async function isDrawn(eventId: string, status?: string): Promise<boolean> {
+  if (status === 'DRAWN' || drawnKnown.has(eventId)) return true;
+  const first = await drawEntriesPage(eventId, 1);
+  return first.some((x) => x.status && x.status !== 'ENTERED');
+}
+
+async function getWinners(eventId: string): Promise<WinnerDto[]> {
+  const { data } = await apiClient.get<{ winners?: WinnerDto[] | null }>(`/admin/events/${encodeURIComponent(eventId)}/draw-result`);
+  return data?.winners ?? [];
 }
 
 /** F-ODRAW-02 분기 상품 (등록 · 수정 방식은 팀 확인 필요 · 명세 원본 44라 화면은 조회만 해요) */
@@ -84,29 +127,33 @@ export async function getStampEntryPage(
     const page = paginate(rows, opts.cursor, limit);
     dto = await mockResponse({ periodId, entries: page.items, nextCursor: page.nextCursor });
   } else {
-    // 추첨 응모자 목록 GET /admin/events/{eventId}/draw-entries?status → { items: [{ drawEntryId, userId, status, stampCount }] }
-    // 다음 페이지 근거가 없어 첫 페이지만 보여 줘요
-    if (opts.cursor) return { items: [], nextCursor: null };
-    const STATUS: Record<string, string> = { WON: 'WON', NOT_WON: 'LOST' };
-    const { data } = await apiClient.get<{ items?: { drawEntryId: string | number; userId?: string | number; status?: string; stampCount?: number }[] | null }>(
-      `/admin/events/${encodeURIComponent(periodId)}/draw-entries`,
-      { params: { status: opts.result ? STATUS[opts.result] : undefined } },
-    );
-    const entries: StampEntry[] = (data?.items ?? [])
+    // 추첨 응모 목록 — GET /admin/events/{eventId}/draw-entries?status&page → { items: [{ drawEntryId, userId, status, stampCount, fulfillmentStatus }] }
+    // 상태: ENTERED(추첨 전) · WON · NOT_SELECTED(미당첨) · CANCELED(당첨 취소). 상품명은 추첨 결과(draw-result)에서 응모 ID 로 붙여요.
+    const pageNo = opts.cursor ? Number(opts.cursor) : 1;
+    const STATUS: Record<string, string> = { WON: 'WON', NOT_WON: 'NOT_SELECTED', PENDING: 'ENTERED' };
+    const [rows, winners] = await Promise.all([drawEntriesPage(periodId, pageNo, opts.result ? STATUS[opts.result] : undefined), getWinners(periodId).catch(() => [] as WinnerDto[])]);
+    const prizeOf = new Map(winners.map((w) => [String(w.drawEntryId), w.prizeName ?? null]));
+    const entries: StampEntry[] = rows
       .filter((x) => opts.includeCanceled || x.status !== 'CANCELED')
-      .map((x) => ({
-        entryId: String(x.drawEntryId),
-        userId: x.userId != null ? String(x.userId) : '',
-        enteredAt: '',
-        result: x.status === 'WON' ? 'WON' : x.status === 'LOST' ? 'NOT_WON' : 'PENDING',
-        canceled: x.status === 'CANCELED',
-        canceledAt: null,
-        contactPhoneMasked: '',
-        hasAddressSnapshot: false,
-        awardedPrize: null,
-        drawRunId: x.status === 'WON' || x.status === 'LOST' ? periodId : null,
-      }));
-    return { items: entries, nextCursor: null };
+      .map((x) => {
+        const id = String(x.drawEntryId);
+        const prize = prizeOf.get(id) ?? null;
+        const decided = x.status === 'WON' || x.status === 'NOT_SELECTED' || x.status === 'CANCELED';
+        return {
+          entryId: id,
+          userId: x.userId != null ? String(x.userId) : '',
+          enteredAt: '',
+          result: x.status === 'WON' || x.status === 'CANCELED' ? 'WON' : x.status === 'NOT_SELECTED' ? 'NOT_WON' : 'PENDING',
+          canceled: x.status === 'CANCELED',
+          ...(x.status === 'CANCELED' ? { canceledKind: 'WIN' as const } : {}),
+          canceledAt: null,
+          contactPhoneMasked: '',
+          hasAddressSnapshot: null,
+          awardedPrize: prize ? { prizeId: '', name: prize } : null,
+          drawRunId: decided ? periodId : null,
+        };
+      });
+    return { items: entries, nextCursor: rows.length >= BE_PAGE_SIZE ? String(pageNo + 1) : null };
   }
   return { items: dto.entries ?? [], nextCursor: dto.nextCursor };
 }
@@ -116,8 +163,12 @@ export async function getStampEntryPage(
  * 진행 중 · 실패한 실행이나 응모가 없는 분기는 읽을 수 있는 계약이 없어 null 이에요 (백엔드 확인 사항).
  */
 export async function findDrawRunIdFromEntries(periodId: string): Promise<string | null> {
-  // 서버 모드: 추첨 결과가 있으면 그 이벤트 ID 가 곧 결과 조회 키예요
-  if (!USE_MOCK) return (await readDrawResult(periodId)) ? periodId : null;
+  // 서버 모드: 추첨됐으면 그 이벤트 ID 가 곧 결과 조회 키예요
+  if (!USE_MOCK) {
+    // 이벤트 상태(DRAWN)도 함께 봐요 — 응모가 없는 이벤트도 추첨 완료로 알아볼 수 있게
+    const ev = await getAdminEvent(periodId).catch(() => null);
+    return (await isDrawn(periodId, ev?.status)) ? periodId : null;
+  }
   const page = await getStampEntryPage(periodId, { includeCanceled: true, cursor: null, limit: 20 });
   return page.items.find((e) => e.drawRunId)?.drawRunId ?? null;
 }
@@ -138,21 +189,26 @@ export async function getDrawRun(drawRunId: string): Promise<DrawRun> {
 /** 이벤트 추첨 결과 조회 GET /admin/events/{eventId}/draw-result → { eventId, winners: [...] } (없으면 null) */
 async function readDrawResult(eventId: string): Promise<DrawRun | null> {
   try {
-    const { data } = await apiClient.get<{ eventId?: string | number; drawnAt?: string | null; winners?: { drawEntryId: string | number; prizeName?: string; fulfillmentStatus?: string }[] | null }>(
-      `/admin/events/${encodeURIComponent(eventId)}/draw-result`,
-    );
-    if (!data || !Array.isArray(data.winners)) return null;
+    // 결과 · 응모 상태로 요약해요. 실행 시각 · 실행자 · 추첨 대상 수 · 공개 정보는 BE 응답에 없어 null 이에요.
+    const [winners, entries, event] = await Promise.all([getWinners(eventId), allDrawEntries(eventId), getAdminEvent(eventId).catch(() => null)]);
+    const count = (st: string) => entries.filter((x) => x.status === st).length;
+    const known = drawnKnown.get(eventId) ?? null;
+    const decided = entries.some((x) => x.status && x.status !== 'ENTERED') || winners.length > 0;
+    // 추첨됐다고 볼 근거: 이번에 받은 추첨 응답 · 이벤트 상태 DRAWN · 결과가 정해진 응모. 빈 결과만으로는 완료로 보지 않아요
+    if (!known && event?.status !== 'DRAWN' && !decided) return null;
     return {
       drawRunId: eventId,
       periodId: eventId,
       status: 'SUCCEEDED',
-      requestedAt: data.drawnAt ?? '',
+      requestedAt: known?.drawnAt ?? '',
       requestedBy: { type: 'OPERATOR', operatorId: null },
-      finishedAt: data.drawnAt ?? null,
+      finishedAt: known?.drawnAt ?? null,
       eligibleCount: null,
-      wonCount: data.winners.length,
-      notWonCount: null,
+      // 응모 목록이 비어 있으면 추첨 응답의 당첨 수를 써요 (둘 다 없으면 응모 기준 0)
+      wonCount: entries.length === 0 && known?.winnerCount != null ? known.winnerCount : count('WON'),
+      notWonCount: count('NOT_SELECTED'),
       canceledDuringRunCount: null,
+      canceledWinCount: winners.filter((w) => w.status === 'CANCELED').length,
       failure: null,
       publication: { publishedAt: null, notificationsQueued: 0 },
     };
@@ -204,12 +260,17 @@ export async function startDraw(periodId: string): Promise<string> {
   if (running) return running;
   const task = (async () => {
     try {
-      await apiClient.post(`/admin/events/${encodeURIComponent(periodId)}/draw`, { confirm: true });
+      // 201 { eventId, drawnAt, winnerCount } — 당첨 0건이어도 성공이에요. 응답 값을 결과 요약에 남겨요
+      const { data } = await apiClient.post<{ eventId?: string | number; drawnAt?: string | null; winnerCount?: number | null }>(`/admin/events/${encodeURIComponent(periodId)}/draw`, { confirm: true });
+      drawnKnown.set(periodId, { drawnAt: data?.drawnAt ?? null, winnerCount: typeof data?.winnerCount === 'number' ? data.winnerCount : null });
       return periodId;
     } catch (e) {
       const err = toApiError(e);
-      // 이미 추첨된 이벤트면 다시 추첨하지 않고 기존 결과를 보여 줘요
-      if (err.code === 'DRAW_ALREADY_EXECUTED') return periodId;
+      // 이미 추첨된 이벤트(409)면 다시 추첨하지 않고 기존 결과를 보여 줘요 (실행 시각 · 당첨 수는 모름)
+      if (err.code === 'DRAW_ALREADY_EXECUTED') {
+        if (!drawnKnown.has(periodId)) drawnKnown.set(periodId, { drawnAt: null, winnerCount: null });
+        return periodId;
+      }
       // 응답을 못 받았으면 자동으로 다시 보내지 않아요. 서버가 이미 처리했는지 결과 조회로만 확인해요
       if (!err.responded) {
         const done = await readDrawResult(periodId).catch(() => null);

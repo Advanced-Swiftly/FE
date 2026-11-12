@@ -1,3 +1,5 @@
+import { USE_MOCK } from '@/api/client';
+import { ServerConditionsPage } from './ServerConditions';
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { getConditions } from '@/api/conditions';
@@ -27,7 +29,12 @@ const GUIDE = {
 } as const;
 
 /** UI-W-009 입장 조건 현황 (F-WREQ-02) */
+/** 서버 모드는 실제 BE 정책 구조(견종 · 준비물 · 예방접종)를 쓰는 화면으로 바꿔요 */
 export function ConditionsPage() {
+  return USE_MOCK ? <MockConditionsPage /> : <ServerConditionsPage />;
+}
+
+function MockConditionsPage() {
   const { store } = useCurrentStore();
   const navigate = useNavigate();
   const location = useLocation();

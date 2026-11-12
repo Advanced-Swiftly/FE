@@ -1,3 +1,4 @@
+import { USE_MOCK } from '@/api/client';
 import { useEffect, useState } from 'react';
 import { findDrawRunIdFromEntries, getDrawRun, getStampEntryPage, getStampPeriods, getStampPrizes, startDraw } from '@/api/stampRoad';
 import { Button } from '@/components/common/Button';
@@ -216,7 +217,8 @@ function PeriodDetail({ period, onChanged }: { period: StampPeriod; onChanged: (
         aside={
           <Choice
             type="checkbox"
-            label="탈퇴로 취소된 응모 포함"
+            // 서버의 CANCELED 는 당첨 취소(CANCEL_WIN)예요
+            label={USE_MOCK ? '탈퇴로 취소된 응모 포함' : '당첨 취소된 응모 포함'}
             checked={includeCanceled}
             onChange={(e) => {
               setIncludeCanceled(e.target.checked);
@@ -266,13 +268,13 @@ function PeriodDetail({ period, onChanged }: { period: StampPeriod; onChanged: (
                       <td>
                         <strong>{e.entryId}</strong>
                       </td>
-                      <td>{formatDateTime(e.enteredAt)}</td>
+                      <td>{e.enteredAt ? formatDateTime(e.enteredAt) : '—'}</td>
                       <td>{e.contactPhoneMasked}</td>
-                      <td>{e.hasAddressSnapshot ? '있음' : '없음'}</td>
+                      <td>{e.hasAddressSnapshot === null ? '—' : e.hasAddressSnapshot ? '있음' : '없음'}</td>
                       <td>
                         {e.canceled ? (
                           <Tag tone="red" shape="pill">
-                            × 응모 취소
+                            {e.canceledKind === 'WIN' ? '× 당첨 취소' : '× 응모 취소'}
                           </Tag>
                         ) : (
                           <Tag tone={RESULT_CHIP[e.result].tone} shape="pill">
@@ -371,32 +373,34 @@ function RunResult({ run, period }: { run: DrawRun; period: StampPeriod }) {
       <div className={styles.runStats}>
         <div>
           <span>추첨 대상</span>
-          <strong>{run.eligibleCount}</strong>
+          <strong>{run.eligibleCount ?? '–'}</strong>
         </div>
         <div>
           <span>당첨</span>
-          <strong className={styles.won}>{run.wonCount}</strong>
+          <strong className={styles.won}>{run.wonCount ?? '–'}</strong>
         </div>
         <div>
           <span>미당첨</span>
-          <strong>{run.notWonCount}</strong>
+          <strong>{run.notWonCount ?? '–'}</strong>
         </div>
         <div>
-          <span>실행 중 취소</span>
-          <strong>{run.canceledDuringRunCount}</strong>
+          <span>{run.canceledWinCount != null ? '당첨 취소' : '실행 중 취소'}</span>
+          <strong>{run.canceledWinCount ?? run.canceledDuringRunCount ?? '–'}</strong>
         </div>
       </div>
       <InfoList
         labelWidth={90}
         rows={[
           { label: '실행 ID', value: run.drawRunId },
-          { label: '실행', value: `${formatDateTime(run.requestedAt)} · ${run.requestedBy.type === 'SYSTEM' ? '자동' : run.requestedBy.operatorId}` },
+          { label: '실행', value: run.requestedAt ? `${formatDateTime(run.requestedAt)} · ${run.requestedBy.type === 'SYSTEM' ? '자동' : (run.requestedBy.operatorId ?? '운영자')}` : '— (서버 응답에 실행 기록 없음)' },
           { label: '완료', value: run.finishedAt ? formatDateTime(run.finishedAt) : '—' },
           {
             label: '결과 공개',
             value: run.publication.publishedAt
               ? `${formatDateTime(run.publication.publishedAt)} · 발표 알림 ${run.publication.notificationsQueued}건 예약`
-              : `발표일(${formatDate(period.announceDate)}) 이후 자동으로 공개돼요`,
+              : period.announceDate
+                ? `발표일(${formatDate(period.announceDate)}) 이후 자동으로 공개돼요`
+                : '— (서버 응답에 결과 공개 정보 없음)',
           },
         ]}
       />

@@ -114,7 +114,7 @@ function ApplyBody({ r, kind, reload }: { r: ApplyReview; kind: 'EVENT' | 'AD' |
     else navigate('/queue', { state: { flash: { text: `${r.storeName} 신청을 ${verb}.`, storeId: r.storeId } } });
   };
 
-  const title = isEvent ? `${r.stampRoad?.title ?? '댕댕로드'} 참여` : `지도 추천 노출 · ${r.ad?.region ?? ''}`;
+  const title = r.title ?? (isEvent ? `${r.stampRoad?.title ?? '댕댕로드'} 참여` : `지도 추천 노출 · ${r.ad?.region ?? ''}`);
   const hint =
     decision === 'APPROVE'
       ? isEvent
@@ -181,7 +181,12 @@ function ApplyBody({ r, kind, reload }: { r: ApplyReview; kind: 'EVENT' | 'AD' |
             title="신청 내용"
             aside={isEvent && r.stampRoad ? `이 분기 신청 ${r.stampRoad.recruitmentStatus.applicationCount} · 승인 ${r.stampRoad.recruitmentStatus.approvedCount}` : undefined}
           >
-            {isEvent && r.stampRoad ? (
+            {r.details ? (
+              <>
+                <InfoList labelWidth={96} rows={r.details.map((d) => ({ label: d.label, value: d.href ? <a href={d.href} target="_blank" rel="noreferrer">{d.value}</a> : d.value }))} />
+                {r.detailNote && <p className={page.muted}>{r.detailNote}</p>}
+              </>
+            ) : isEvent && r.stampRoad ? (
               <InfoList
                 labelWidth={96}
                 rows={[
@@ -216,10 +221,10 @@ function ApplyBody({ r, kind, reload }: { r: ApplyReview; kind: 'EVENT' | 'AD' |
             ) : (
               <p className={page.muted}>신청 내용이 없어요.</p>
             )}
-            {isEvent && <p className={page.muted}>40자는 서버가 확인해요. 입장 조건과 다른 위험한 표현이 없는지는 운영자가 확인해 주세요.</p>}
+            {isEvent && !r.details && <p className={page.muted}>40자는 서버가 확인해요. 입장 조건과 다른 위험한 표현이 없는지는 운영자가 확인해 주세요.</p>}
           </Card>
 
-          {isEvent && (
+          {isEvent && (r.checks.length > 0 || r.eligibilityAtSubmit.length > 0) && (
             <Card title="조건 자동 확인" aside={r.checkedAt ? `지금 기준 · ${dt(r.checkedAt)}` : '지금 기준'}>
               <ul className={styles.checks}>
                 {r.checks.map((c) => {

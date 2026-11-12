@@ -130,6 +130,9 @@ export const MOCK_EVENT_STATS: Record<string, EventStatsDto> = {
 {
   const ad = MOCK_APPLICATIONS.find((a) => a.type === 'AD');
   const ev = MOCK_APPLICATIONS.find((a) => a.type === 'STAMP_ROAD');
-  if (ad) MOCK_APPLICATIONS.push({ ...structuredClone(ad), applicationId: '1502', status: 'RECEIVED', canCancel: true });
-  if (ev) MOCK_APPLICATIONS.push({ ...structuredClone(ev), applicationId: '1502', status: 'RECEIVED', displayStatus: 'RECEIVED', canCancel: true });
+  // 요청 목록(mocks/requests.ts)의 1502 두 줄과 접수 시각 · 이력을 맞춰요
+  const adAt = '2026-11-10T10:05:00+09:00';
+  const evAt = '2026-11-10T10:00:00+09:00';
+  if (ad) MOCK_APPLICATIONS.push({ ...structuredClone(ad), applicationId: '1502', status: 'RECEIVED', submittedAt: adAt, history: [{ at: adAt, status: 'RECEIVED', by: 'BUSINESS' }], canCancel: true });
+  if (ev) MOCK_APPLICATIONS.push({ ...structuredClone(ev), applicationId: '1502', status: 'RECEIVED', displayStatus: 'RECEIVED', submittedAt: evAt, history: [{ at: evAt, status: 'RECEIVED', by: 'BUSINESS' }], canCancel: true });
 }

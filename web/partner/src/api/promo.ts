@@ -271,8 +271,22 @@ async function myEventApplications(storeId: string) {
 
 /** 서버 모드 행사 목록: 현재 이벤트(GET /events/current) + 내 이벤트 신청(GET /business/event-applications?storeId) */
 async function serverOverview(storeId: string): Promise<PromoOverview> {
+  // 현재 이벤트가 없으면(404 EVENT_NOT_FOUND) 모집 중 행사가 없는 것이고, 그 밖의 실패는 이유를 화면에 알려요.
+  // 실제 BE 의 GET /events/current 는 보호자(GUARDIAN) 계정만 열려 있어 업체 계정은 403 을 받아요 (백엔드 확인 사항).
+  let eventsUnavailable: string | null = null;
   const [cur, apps] = await Promise.all([
-    apiClient.get<CurrentEventDto>('/events/current').then((r) => r.data).catch(() => null),
+    apiClient
+      .get<CurrentEventDto>('/events/current')
+      .then((r) => r.data)
+      .catch((e: unknown) => {
+        const err = e as { status?: number | null; code?: string; message?: string };
+        if (err.status === 404 || err.code === 'EVENT_NOT_FOUND') return null;
+        eventsUnavailable =
+          err.status === 403 || err.code === 'FORBIDDEN'
+            ? '업체 계정으로는 현재 이벤트 정보를 불러올 수 없어요. 서버의 이벤트 조회 권한이 보호자 계정에만 열려 있어요.'
+            : (err.message ?? '현재 이벤트 정보를 불러오지 못했어요.');
+        return null;
+      }),
     myEventApplications(storeId),
   ]);
   const curId = toId(cur?.eventId);
@@ -297,7 +311,7 @@ async function serverOverview(storeId: string): Promise<PromoOverview> {
   const participating: ParticipatingEvent[] = apps
     .filter((a) => a.status === 'APPROVED' && toId(a.eventId))
     .map((a) => ({ id: toId(a.eventId) as string, periodId: toId(a.eventId) === curId && cur ? periodIdOf(cur) : '', title: toId(a.eventId) === curId && cur?.title ? cur.title : `이벤트 ${toId(a.eventId)}`, phase: 'IN_PROGRESS', period: EMPTY_RANGE, participationId: toId(a.applicationId) ?? '', approvedAt: '' }));
-  return { placeId: storeId, serverTime: new Date().toISOString(), recruiting, participating };
+  return { placeId: storeId, serverTime: new Date().toISOString(), recruiting, participating, eventsUnavailable };
 }
 
 export async function getPromoOverview(storeId: string): Promise<PromoOverview> {
@@ -407,8 +421,8 @@ function fromMyApplication(d: MyApplicationDetailDto, kind: 'EVENT' | 'AD', id: 
     stampRoad: kind === 'EVENT' ? { eventId: toId(d.eventId) ?? '', periodId: '', title: '', period: EMPTY_RANGE, recruitment: EMPTY_RECRUIT, intro: d.message ?? '', qrPledgeAgreed: false, eligibilityAtSubmit: [], participation: null } : undefined,
     history: [],
     rejectReason: d.reviewComment ?? null,
-    // 취소 가능 여부 필드가 없어 API 문서 설명('심사 전 신청 취소')대로 접수 상태일 때만 열어요
-    canCancel: status === 'RECEIVED',
+    // 취소 가능 여부 필드가 없어 BE 규칙(ApplicationStatus.isCancelable: 접수 · 보완 요청)대로 열어요
+    canCancel: status === 'RECEIVED' || status === 'NEEDS_INFO',
     canEditPeriod: false,
     canReapply: false,
     creativeUrl: d.creativeUrl ?? null,
@@ -501,7 +515,7 @@ export async function applyEvent(form: EventApplyForm): Promise<{ id: string }> 
       canReapply: false,
     };
     MOCK_APPLICATIONS.unshift(dto);
-    MOCK_REQUESTS.unshift({ placeId: form.storeId, type: 'EVENT_AD', applicationId: id, status: 'RECEIVED', group: 'IN_PROGRESS', summaryText: `${ev.title} 참여`, submittedAt: dto.submittedAt });
+    MOCK_REQUESTS.unshift({ placeId: form.storeId, type: 'EVENT_AD', appKind: 'EVENT', applicationId: id, status: 'RECEIVED', group: 'IN_PROGRESS', summaryText: `${ev.title} 참여`, submittedAt: dto.submittedAt });
     dto = await mockResponse(dto);
   } else {
     // 이벤트 참여 신청 — POST /business/event-applications { storeId, eventId, regionIds, message? } → { applicationId, status }
@@ -526,7 +540,8 @@ export async function applyAd(form: AdApplyForm): Promise<{ id: string }> {
   const body = { placeId: form.storeId, region: form.region, startDate: form.startDate, weeks: form.weeks };
   if (USE_MOCK) {
     const store = MOCK_STORES.find((s) => s.id === form.storeId);
-    if (store?.area && store.area !== form.region) throw mockError('VALIDATION_ERROR', { field: 'region' });
+    if (!form.region || (store?.area && store.area !== form.region)) throw mockError('VALIDATION_ERROR', { field: 'region' });
+    const region = form.region;
     const id = nextId('AD');
     const endDate = endDateOf(form.startDate, form.weeks);
     const submittedAt = nowIso();
@@ -537,18 +552,32 @@ export async function applyAd(form: AdApplyForm): Promise<{ id: string }> {
       placeName: store?.name ?? '',
       status: 'RECEIVED',
       submittedAt,
-      ad: { region: form.region, startDate: form.startDate, weeks: form.weeks, endDate },
+      ad: { region, startDate: form.startDate, weeks: form.weeks, endDate },
       history: [{ at: submittedAt, status: 'RECEIVED', by: 'BUSINESS' }],
       rejectReason: null,
       canCancel: true,
       canEditPeriod: true,
     });
-    MOCK_REQUESTS.unshift({ placeId: form.storeId, type: 'EVENT_AD', applicationId: id, status: 'RECEIVED', group: 'IN_PROGRESS', summaryText: `지도 추천 노출 · ${form.region} · ${periodText({ startDate: form.startDate, endDate })}`, submittedAt });
+    MOCK_REQUESTS.unshift({ placeId: form.storeId, type: 'EVENT_AD', appKind: 'AD', applicationId: id, status: 'RECEIVED', group: 'IN_PROGRESS', summaryText: `지도 추천 노출 · ${region} · ${periodText({ startDate: form.startDate, endDate })}`, submittedAt });
     const res = await mockResponse({ applicationId: id, type: 'AD', status: 'RECEIVED', submittedAt, startDate: form.startDate, weeks: form.weeks, endDate });
     return { id: res.applicationId };
   }
-  const { data } = await apiClient.post<{ applicationId: string }>('/business/ad-applications', body);
-  return { id: data.applicationId };
+  // 광고 신청 — POST /business/ad-applications { storeId, adType, startDate, endDate, creativeUrl(https), message? } → { applicationId, status }
+  // BE 에는 노출 지역 · 주 단위가 없어서 끝나는 날을 화면에서 계산해 보내요.
+  void body;
+  if (!form.adType) throw mockError('INVALID_REQUEST', { field: 'adType' });
+  const creativeUrl = (form.creativeUrl ?? '').trim();
+  if (!/^https?:\/\/.+/.test(creativeUrl)) throw mockError('INVALID_REQUEST', { field: 'creativeUrl' });
+  const num = (v: string) => (/^\d+$/.test(v) ? Number(v) : v);
+  const { data } = await apiClient.post<{ applicationId: RawId; status?: string }>('/business/ad-applications', {
+    storeId: num(form.storeId),
+    adType: form.adType,
+    startDate: form.startDate,
+    endDate: endDateOf(form.startDate, form.weeks),
+    creativeUrl,
+    message: form.message?.trim() || undefined,
+  });
+  return { id: toId(data.applicationId) ?? '' };
 }
 
 /** F-WAD-07 신청 취소 (검토 시작 전 · 참여 신청은 접수 상태에서만) */
@@ -569,7 +598,9 @@ export async function cancelApplication(id: string, kind?: 'EVENT' | 'AD' | null
       canEditPeriod: false,
       history: [...app.history, { at: nowIso(), status: 'CANCELED', by: 'BUSINESS' }],
     });
-    const row = MOCK_REQUESTS.find((r) => r.applicationId === id);
+    // 같은 숫자 ID 의 이벤트 · 광고 신청이 있어 목록 줄도 종류 + ID 로 찾아요 (다른 종류 줄을 바꾸지 않아요)
+    const appKind = app.type === 'AD' ? 'AD' : 'EVENT';
+    const row = MOCK_REQUESTS.find((r) => r.type === 'EVENT_AD' && r.appKind === appKind && r.applicationId === id);
     if (row) Object.assign(row, { status: 'CANCELED', group: 'DONE' });
     await mockResponse(null);
     return;

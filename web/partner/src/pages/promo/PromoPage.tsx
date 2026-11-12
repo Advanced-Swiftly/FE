@@ -6,6 +6,7 @@ import { Button } from '@/components/common/Button';
 import { Card } from '@/components/common/Card';
 import { Icon } from '@/components/common/Icon';
 import { LoadState } from '@/components/common/LoadState';
+import { Notice } from '@/components/common/Notice';
 import { PageHeader } from '@/components/common/PageHeader';
 import { StatusChip } from '@/components/common/StatusChip';
 import { Tag } from '@/components/common/Tag';
@@ -45,8 +46,13 @@ export function PromoPage() {
             </h2>
             {USE_MOCK && <span className={page.muted}>시안 기준 시각 {formatDate(p.serverTime)}</span>}
           </div>
+          {p.eventsUnavailable && (
+            <Notice tone="warning" role="status">
+              {p.eventsUnavailable}
+            </Notice>
+          )}
           {p.recruiting.length === 0 && p.participating.length === 0 ? (
-            <p className={page.muted}>지금 모집 중이거나 참여 중인 행사가 없어요.</p>
+            !p.eventsUnavailable && <p className={page.muted}>지금 모집 중이거나 참여 중인 행사가 없어요.</p>
           ) : (
             <div className={styles.banners}>
               {p.recruiting.map((ev) => (
@@ -124,7 +130,7 @@ export function PromoPage() {
           ) : (
             <ul className={styles.list}>
               {apps.items.map((a) => (
-                <li key={a.id}>
+                <li key={`${a.appKind ?? ""}:${a.id}`}>
                   <button type="button" className={styles.row} onClick={() => setModal({ kind: 'application', id: a.id, ids: apps.items.filter((x) => x.appKind === a.appKind).map((x) => x.id), appKind: a.appKind })}>
                     <span className={styles.date}>{formatDate(a.submittedAt)}</span>
                     <span className={styles.kind}>

@@ -327,6 +327,8 @@ export interface PromoOverview {
   serverTime: string;
   recruiting: RecruitingEvent[];
   participating: ParticipatingEvent[];
+  /** 서버 모드에서 현재 이벤트를 불러오지 못한 이유 (권한 · 연결). 없으면 null */
+  eventsUnavailable?: string | null;
 }
 
 export interface EventApplyForm {
@@ -340,9 +342,14 @@ export interface EventApplyForm {
 
 export interface AdApplyForm {
   storeId: string;
-  region: Area;
+  /** 목업 화면만 써요 (BE 광고 신청에는 지역이 없어요) */
+  region: Area | '';
   startDate: string;
   weeks: number;
+  /** 서버 모드 — BE 광고 신청 필수값: 광고 종류 · 광고 소재 URL(https) */
+  adType?: 'BANNER' | 'RECOMMENDED';
+  creativeUrl?: string;
+  message?: string;
 }
 
 /** F-WAD-09 이벤트 통계 — 분기 세 달의 월별 스탬프 · 완주 */
