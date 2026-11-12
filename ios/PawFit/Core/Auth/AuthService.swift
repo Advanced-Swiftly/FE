@@ -18,7 +18,8 @@ struct LiveAuthService: AuthService {
         let response = try await api.send(AuthEndpoints.login(phone: phone, password: password))
         // 같은 서버로 업체관리자 · 운영자도 로그인하므로, 보호자가 아니면 토큰을 저장하지 않는다
         guard response.user.role == .guardian else {
-            _ = try? await api.send(AuthEndpoints.logout(refreshToken: response.refreshToken))
+            _ = try? await api.send(AuthEndpoints.logout(
+                refreshToken: response.refreshToken, accessToken: response.accessToken))
             throw APIError.notGuardian
         }
         tokenStore.save(response.tokens)
@@ -70,7 +71,7 @@ struct MockAuthService: AuthService {
     func restoreSession() async -> Me? {
         try? await Task.sleep(for: latency)
         guard tokenStore.load() != nil else { return nil }
-        return Me(userId: Self.demoUser.userId, role: .guardian, name: Self.demoUser.name, phoneNumber: "010-1234-5678")
+        return Me(userId: Self.demoUser.userId, role: .guardian, name: Self.demoUser.name, phoneNumber: "01012345678")
     }
 
     func logout() async { tokenStore.clear() }

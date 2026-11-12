@@ -46,7 +46,7 @@ actor APIClient {
     func send<R>(_ endpoint: Endpoint<R>) async throws -> R {
         do {
             return try await perform(endpoint)
-        } catch APIError.server(.unauthorized, _, _) where endpoint.requiresAuth {
+        } catch APIError.server(.unauthorized, _, _) where endpoint.requiresAuth && endpoint.bearerToken == nil {
             _ = try await refreshTokens()
             return try await perform(endpoint)
         }
@@ -84,7 +84,9 @@ actor APIClient {
             request.httpBody = try JSONCoding.encoder.encode(body)
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
-        if endpoint.requiresAuth, let token = tokenStore.load()?.accessToken {
+        if let token = endpoint.bearerToken {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        } else if endpoint.requiresAuth, let token = tokenStore.load()?.accessToken {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         return request
@@ -126,19 +128,27 @@ actor APIClient {
             await expireSession()
             throw APIError.sessionExpired
         }
+        // 서버는 갱신할 때마다 리프레시 토큰을 새로 주고 이전 것은 폐기한다(rotate).
+        // 기다리던 다른 요청이 새 토큰으로 재요청하도록, 저장까지 이 Task 안에서 끝낸다.
+        let store = tokenStore
         let task = Task { () throws -> AuthTokens in
-            try await self.perform(AuthEndpoints.refresh(refreshToken: refreshToken))
+            let tokens = try await self.perform(AuthEndpoints.refresh(refreshToken: refreshToken))
+            store.save(tokens)
+            return tokens
         }
         refreshTask = task
         defer { refreshTask = nil }
 
         do {
-            let tokens = try await task.value
-            tokenStore.save(tokens)
-            return tokens
-        } catch {
-            await expireSession()
-            throw APIError.sessionExpired
+            return try await task.value
+        } catch let error as APIError {
+            // 서버가 토큰을 거절한 경우(INVALID_REFRESH_TOKEN 등)만 로그아웃한다.
+            // 연결 끊김 · 서버 깨어나는 중(시간 초과) · 5xx에서는 토큰을 지우지 않는다.
+            if case let .server(_, status, _) = error, (400..<500).contains(status), status != 429 {
+                await expireSession()
+                throw APIError.sessionExpired
+            }
+            throw error
         }
     }
 

@@ -2,6 +2,8 @@ import Foundation
 
 // 인증 · 내 정보 모델 — 백엔드 BE `auth/api/dto/AuthDtos.java`, `member/MemberController.java` 기준
 // ID는 서버에서 Long(숫자)이라 Int64로 받는다.
+// 서버는 null인 필드를 응답에서 아예 뺀다(spring.jackson.default-property-inclusion: non_null).
+// → 값이 없을 수 있는 필드는 반드시 Optional로 선언해야 디코딩이 실패하지 않는다.
 
 enum UserRole: String, Codable, Sendable {
     case guardian = "GUARDIAN"   // 보호자 — 사용자 앱은 이 역할만 쓴다
@@ -54,7 +56,7 @@ struct Me: Decodable, Equatable, Sendable {
     let userId: Int64
     let role: UserRole
     let name: String
-    /// 서버가 저장한 형식 그대로 (예: "010-1234-5678")
+    /// 서버는 숫자만 저장한다(예: "01012345678"). 화면에는 `PhoneRule.format`으로 보여 준다.
     let phoneNumber: String
 }
 
@@ -72,8 +74,15 @@ enum AuthEndpoints {
         Endpoint(method: .post, path: APIPath.tokenRefresh, body: RefreshRequest(refreshToken: refreshToken), requiresAuth: false)
     }
 
-    static func logout(refreshToken: String, deviceToken: String? = nil) -> Endpoint<LogoutResponse> {
-        Endpoint(method: .post, path: APIPath.logout, body: LogoutRequest(refreshToken: refreshToken, deviceToken: deviceToken))
+    /// 서버의 로그아웃은 로그인이 필요하다(액세스 토큰의 사용자와 리프레시 토큰 주인이 같아야 함).
+    /// `accessToken`을 주면 저장된 토큰 대신 그것을 쓴다.
+    static func logout(refreshToken: String, deviceToken: String? = nil, accessToken: String? = nil) -> Endpoint<LogoutResponse> {
+        Endpoint(
+            method: .post,
+            path: APIPath.logout,
+            body: LogoutRequest(refreshToken: refreshToken, deviceToken: deviceToken),
+            bearerToken: accessToken
+        )
     }
 
     /// 시작 화면에서 저장된 토큰이 살아 있는지 확인할 때도 쓴다

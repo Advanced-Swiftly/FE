@@ -15,6 +15,9 @@ struct Endpoint<Response: Decodable & Sendable>: Sendable {
     var body: (any Encodable & Sendable)? = nil
     /// false = 로그인 불필요 API (이메일 중복 확인, 휴대폰 인증, 가입, 로그인, 토큰 갱신, 약관)
     var requiresAuth: Bool = true
+    /// 저장된 토큰 대신 이 액세스 토큰을 쓴다(토큰 갱신 · 재시도 없음).
+    /// 로그인 직후 저장하지 않을 토큰으로 로그아웃할 때 쓴다.
+    var bearerToken: String? = nil
 }
 
 /// 응답 본문이 없는 API(204 등)용
