@@ -1,5 +1,11 @@
 # 🗣️ Swiftly FE
 
+## 📁 폴더 구조
+
+| 폴더 | 내용 | 담당 |
+| --- | --- | --- |
+| `ios/` | PawFit 사용자 앱 (iOS · SwiftUI) — 실행 방법은 [ios/README.md](ios/README.md) | 이채린 |
+
 ## 🚀 Git Flow
 
 * `main`
