@@ -42,12 +42,6 @@ struct MyDogsView: View {
         }
         .screenBackground()
         .toolbar(.hidden, for: .navigationBar)
-        .navigationDestination(for: DogRoute.self) { route in
-            switch route {
-            case .edit(let id): DogEditView(dogId: id)
-            case .vaccination(let id, let name): VaccinationFlowView(dogId: id, dogName: name)
-            }
-        }
         .fullScreenCover(isPresented: $showRegister) {
             DogRegistrationFlow(onFinish: { showRegister = false }).environment(store)
         }
@@ -65,6 +59,18 @@ struct MyDogsView: View {
 enum DogRoute: Hashable {
     case edit(Int64)
     case vaccination(Int64, String)
+}
+
+extension View {
+    /// 반려견 수정 · 예방접종 화면 경로. 각 탭의 NavigationStack 맨 아래에서 한 번만 등록한다.
+    func dogRoutes() -> some View {
+        navigationDestination(for: DogRoute.self) { route in
+            switch route {
+            case .edit(let id): DogEditView(dogId: id).hidesTabBar()
+            case .vaccination(let id, let name): VaccinationFlowView(dogId: id, dogName: name).hidesTabBar()
+            }
+        }
+    }
 }
 
 struct DogCard: View {

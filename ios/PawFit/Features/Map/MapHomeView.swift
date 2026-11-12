@@ -22,7 +22,7 @@ struct MapHomeView: View {
     @State private var searchText = ""
     @State private var searchResults: [PlaceCard]?
     @State private var errorMessage: String?
-    @State private var path: [String] = []
+    @State private var path = NavigationPath()
     @State private var loadTask: Task<Void, Never>?
     @FocusState private var searchFocused: Bool
 
@@ -64,16 +64,17 @@ struct MapHomeView: View {
                 if id == "dogs" {
                     MyDogsView().hidesTabBar()
                 } else {
-                    PlaceDetailView(placeId: id, onFindAgain: { path.removeAll() }).hidesTabBar()
+                    PlaceDetailView(placeId: id, onFindAgain: { path = NavigationPath() }).hidesTabBar()
                 }
             }
+            .dogRoutes()
             .sheet(isPresented: $showCriteria) { CriteriaSheet() }
             .animation(.snappy(duration: 0.25), value: showDogMenu)
             .task(id: store.revision) { await load() }
             .onChange(of: store.basis) { scheduleLoad() }
             .onChange(of: category) { scheduleLoad() }
             .onChange(of: focusPlaceId) {
-                if let id = focusPlaceId { path = [id]; focusPlaceId = nil }
+                if let id = focusPlaceId { path = NavigationPath([id]); focusPlaceId = nil }
             }
             .toast($errorMessage)
             .onAppear { location.request() }

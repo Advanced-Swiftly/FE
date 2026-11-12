@@ -19,6 +19,7 @@ struct MainTabView: View {
                         NavigationStack { ChatView(openMapPlace: openPlaceFromChat) }
                             .opacity(tab == .chat ? 1 : 0).allowsHitTesting(tab == .chat)
                         MapHomeView(focusPlaceId: $focusPlaceId)   // 지도는 자체 NavigationStack(경로 제어)
+                            .ignoresSafeArea(.keyboard, edges: .bottom)
                             .opacity(tab == .map ? 1 : 0).allowsHitTesting(tab == .map)
                         NavigationStack { MyView(selectTab: { tab = $0 }) }
                             .opacity(tab == .my ? 1 : 0).allowsHitTesting(tab == .my)
@@ -27,7 +28,9 @@ struct MainTabView: View {
                         if store.tabBarHiders == 0 { Color.clear.frame(height: 49) }
                     }
                     if store.tabBarHiders == 0 {
-                        PawFitTabBar(selection: $tab).transition(.move(edge: .bottom))
+                        PawFitTabBar(selection: $tab)
+                            .ignoresSafeArea(.keyboard, edges: .bottom)
+                            .transition(.move(edge: .bottom))
                     }
                 }
                 .environment(store)
@@ -46,7 +49,6 @@ struct MainTabView: View {
                 Color.clear.onAppear { store = AppStore(api: env.api) }
             }
         }
-        .ignoresSafeArea(.keyboard, edges: .bottom)
     }
 
     @State private var focusPlaceId: String?

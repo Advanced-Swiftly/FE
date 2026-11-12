@@ -53,6 +53,7 @@ extension TopBar where Trailing == EmptyView {
 
 struct PrimaryButtonStyle: ButtonStyle {
     var fontSize: CGFloat = 17
+    var background: Color = PawFitColor.brand
     @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
@@ -60,7 +61,7 @@ struct PrimaryButtonStyle: ButtonStyle {
             .font(.pawfit(fontSize, .semibold))
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity, minHeight: 54)
-            .background(PawFitColor.brand.opacity(isEnabled ? 1 : 0.35), in: RoundedRectangle(cornerRadius: 16))
+            .background(background.opacity(isEnabled ? 1 : 0.35), in: RoundedRectangle(cornerRadius: 16))
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
