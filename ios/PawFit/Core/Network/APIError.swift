@@ -4,6 +4,7 @@ import Foundation
 /// { "timestamp", "status": 401, "code": "INVALID_CREDENTIALS", "message", "path", "requestId",
 ///   "fieldErrors": { "phoneNumber": "올바른 휴대전화 번호 형식이어야 합니다." } }
 /// `code`로 화면 문구를 고른다. 서버 `message`는 대부분 "요청을 처리할 수 없습니다."라 화면에 쓰지 않는다.
+/// 서버는 null 필드를 빼고 보내므로(non_null) code 말고는 모두 Optional.
 struct APIErrorBody: Decodable, Sendable {
     let status: Int?
     let code: String
