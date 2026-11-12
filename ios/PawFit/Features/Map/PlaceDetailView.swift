@@ -218,7 +218,7 @@ struct PlaceDetailView: View {
             switch d.verdict {
             case .entryOK, .prepare:
                 HStack(spacing: 10) {
-                    if let url = d.googleMapsUrl.flatMap { URL(string: $0) } {
+                    if let url = d.googleMapsUrl.flatMap({ URL(string: $0) }) {
                         Button { openURL(url) } label: {
                             Label("지도앱", systemImage: "map").font(.pawfit(16, .semibold))
                         }
@@ -231,7 +231,7 @@ struct PlaceDetailView: View {
                 Button("지도에서 다시 찾기", action: onFindAgain).buttonStyle(PrimaryButtonStyle())
             case .unknown:
                 Button {
-                    if let url = d.googleMapsUrl.flatMap { URL(string: $0) } { openURL(url) }
+                    if let url = d.googleMapsUrl.flatMap({ URL(string: $0) }) { openURL(url) }
                 } label: {
                     Label("지도앱에서 업체 연락처 보기", systemImage: "phone").font(.pawfit(16, .semibold))
                 }
@@ -264,7 +264,7 @@ struct PlaceDetailView: View {
         if let naver = URL(string: "nmap://route/walk?dlat=\(d.latitude)&dlng=\(d.longitude)&dname=\(name)&appname=com.advancedswiftly.pawfit"),
            UIApplication.shared.canOpenURL(naver) {
             openURL(naver)
-        } else if let g = d.googleMapsUrl.flatMap { URL(string: $0) } {
+        } else if let g = d.googleMapsUrl.flatMap({ URL(string: $0) }) {
             openURL(g)
         } else if let apple = URL(string: "http://maps.apple.com/?daddr=\(d.latitude),\(d.longitude)&dirflg=w") {
             openURL(apple)
