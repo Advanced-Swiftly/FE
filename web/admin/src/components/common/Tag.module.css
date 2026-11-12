@@ -1,0 +1,28 @@
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.square {
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+.pill {
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-sm);
+}
+
+.gray { color: var(--color-text-secondary); background: var(--color-divider); }
+.blue { color: #1e3a8a; background: #dbeafe; }
+.orange { color: #9a3412; background: #ffedd5; }
+.green { color: var(--color-success); background: #dcfce7; }
+.red { color: var(--color-danger); background: #fee2e2; }
+.yellow { color: #854d0e; background: #fef3c7; }
+.dark { color: var(--color-text-inverse); background: var(--color-text); }
+.primary { color: var(--color-text-inverse); background: var(--color-primary); }
