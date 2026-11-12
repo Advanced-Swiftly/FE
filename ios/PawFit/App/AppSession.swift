@@ -14,11 +14,18 @@ final class AppSession {
     private(set) var userName: String?
     /// 리프레시 토큰까지 만료돼 로그인으로 돌아왔을 때 true (안내 문구를 띄울지는 [확인 필요])
     private(set) var didExpire = false
+    /// 가입 완료(S-005)에서 [반려견 등록하기]를 눌러 들어왔을 때 true → 메인에서 등록 화면을 바로 띄운다
+    var pendingDogRegistration = false
 
-    func signedIn(name: String) {
+    func signedIn(name: String, registerDog: Bool = false) {
         userName = name
         didExpire = false
+        pendingDogRegistration = registerDog
         route = .main
+    }
+
+    func updateName(_ name: String) {
+        userName = name
     }
 
     func showLogin() {

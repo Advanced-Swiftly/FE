@@ -18,6 +18,16 @@ struct Endpoint<Response: Decodable & Sendable>: Sendable {
     /// 저장된 토큰 대신 이 액세스 토큰을 쓴다(토큰 갱신 · 재시도 없음).
     /// 로그인 직후 저장하지 않을 토큰으로 로그아웃할 때 쓴다.
     var bearerToken: String? = nil
+    /// multipart/form-data로 보낼 파일 (예방접종 서류). 있으면 `body`는 쓰지 않는다.
+    var files: [UploadFile] = []
+}
+
+/// multipart 업로드 파일 하나. 서버 필드 이름은 BE `@RequestPart("files")`
+struct UploadFile: Sendable, Equatable {
+    var fieldName: String = "files"
+    let fileName: String
+    let mimeType: String   // image/jpeg · image/png · image/webp · application/pdf (서버 허용, 10MB 이하)
+    let data: Data
 }
 
 /// 응답 본문이 없는 API(204 등)용
