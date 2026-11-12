@@ -1,0 +1,65 @@
+.groups {
+  display: grid;
+  gap: 16px;
+  margin: 0;
+}
+
+.group {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.group > dt,
+.group > legend {
+  font-weight: 700;
+  padding: 0;
+}
+
+.group > dd {
+  margin: 0;
+}
+
+.list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.row > span:first-child {
+  flex: 1 1 160px;
+}
+
+.muted {
+  color: var(--color-text-muted, #6b7280);
+}
+
+.changed {
+  color: var(--color-primary, #1d4ed8);
+}
+
+.removed {
+  color: var(--color-danger, #b91c1c);
+  text-decoration: line-through;
+}
+
+.mark {
+  font-weight: 700;
+}
+
+.error {
+  margin: 0;
+  color: var(--color-danger, #b91c1c);
+  font-size: 0.875rem;
+}

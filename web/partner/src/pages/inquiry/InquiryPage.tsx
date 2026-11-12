@@ -25,7 +25,8 @@ const MAX_FILES = 3;
 export function InquiryPage() {
   const store = useOptionalStore();
   const inquiries = useCursorList('inquiries', (cursor) => getInquiryPage({ cursor }));
-  const faqs = useFetch('faqs', getFaqs);
+  // 자주 묻는 질문 API 는 실제 BE 에 없어서 서버 모드에서는 부르지 않고 칸도 숨겨요
+  const faqs = useFetch(`faqs:${USE_MOCK}`, () => (USE_MOCK ? getFaqs() : Promise.resolve([])));
   // 관련 신청 고르기: 승인된 매장이 있을 때만, 진행 중인 요청 (F-WREQ-01 status=IN_PROGRESS 첫 페이지)
   const requests = useFetch(`requests:${store?.id ?? 'none'}:open`, () =>
     store ? getRequestPage(store.id, { status: 'IN_PROGRESS', limit: 50 }).then((r) => r.items) : Promise.resolve([]),
@@ -39,11 +40,16 @@ export function InquiryPage() {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [files, setFiles] = useState<File[]>([]);
+  // 서버 모드 첨부 — BE 는 https 주소만 받아요 (최대 5개, 파일 업로드 API 없음)
+  const [urlText, setUrlText] = useState('');
+  const urls = urlText.split(/\s+/).map((x) => x.trim()).filter(Boolean);
+  const badUrl = urls.find((u) => !/^https:\/\/\S+$/.test(u) || u.length > 500);
   const [touched, setTouched] = useState(false);
   const [sent, setSent] = useState(false);
 
   const openRequests = requests.data ?? [];
-  const valid = type !== null && body.trim().length >= 10;
+  // 서버 모드는 제목이 필수예요 (BE InquiryCreateRequest.title @NotBlank)
+  const valid = type !== null && body.trim().length >= 10 && (USE_MOCK || (title.trim().length > 0 && !badUrl && urls.length <= 5));
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -53,11 +59,12 @@ export function InquiryPage() {
     const [kind, appKind, ...idParts] = related.split(':');
     const relatedRequest: RelatedRequest | null =
       related && USE_MOCK ? { kind: kind as RelatedRequest['kind'], ...(appKind ? { appKind: appKind as RelatedRequest['appKind'] } : {}), id: idParts.join(':') } : null;
-    const res = await submit.run({ type: type as InquiryType, relatedRequest, title, content: body, placeId: store?.id ?? null }, files);
+    const res = await submit.run({ type: type as InquiryType, relatedRequest, title, content: body, placeId: store?.id ?? null }, files, USE_MOCK ? [] : urls);
     if (!res.ok) return;
     setTitle('');
     setBody('');
     setFiles([]);
+    setUrlText('');
     setRelated('');
     setTouched(false);
     setSent(true);
@@ -117,8 +124,12 @@ export function InquiryPage() {
           )}
 
           {/* TODO: 제목을 받을지는 팀 확인 필요 (명세 원본 34) — 지금은 선택 */}
-          <Field label="제목 (선택)" htmlFor="inq-title">
-            <TextInput id="inq-title" maxLength={80} value={title} onChange={(e) => setTitle(e.target.value)} />
+          <Field
+            label={USE_MOCK ? '제목 (선택)' : '제목'}
+            htmlFor="inq-title"
+            message={!USE_MOCK && touched && !title.trim() ? { tone: 'error', text: '제목을 적어 주세요' } : null}
+          >
+            <TextInput id="inq-title" maxLength={USE_MOCK ? 80 : 100} value={title} onChange={(e) => setTitle(e.target.value)} />
           </Field>
 
           <Field
@@ -158,12 +169,30 @@ export function InquiryPage() {
               e.target.value = '';
             }}
           />
+          {!USE_MOCK && (
+            <Field
+              label={
+                <>
+                  첨부 주소 <span className={styles.optional}>(선택)</span>
+                </>
+              }
+              htmlFor="inq-urls"
+              hint={`사진 · 파일이 올라가 있는 https 주소를 한 줄에 하나씩, 5개까지 적어 주세요 (${urls.length}/5). 서버에 파일 업로드 기능이 아직 없어요.`}
+              message={badUrl ? { tone: 'error', text: `https 주소인지 확인해 주세요: ${badUrl}` } : urls.length > 5 ? { tone: 'error', text: '첨부 주소는 5개까지예요' } : null}
+            >
+              <TextArea id="inq-urls" rows={2} value={urlText} onChange={(e) => setUrlText(e.target.value)} />
+            </Field>
+          )}
           {submit.error && <Notice tone="danger" role="alert">{submit.error}</Notice>}
           <div className={page.actionsBetween}>
-            <Button variant="secondary" disabled={files.length >= MAX_FILES} onClick={() => fileInput.current?.click()}>
-              <Icon name="upload" />
-              사진 · 파일 첨부 {files.length > 0 && `(${files.length}/${MAX_FILES})`}
-            </Button>
+            {USE_MOCK ? (
+              <Button variant="secondary" disabled={files.length >= MAX_FILES} onClick={() => fileInput.current?.click()}>
+                <Icon name="upload" />
+                사진 · 파일 첨부 {files.length > 0 && `(${files.length}/${MAX_FILES})`}
+              </Button>
+            ) : (
+              <span />
+            )}
             <Button type="submit" disabled={submit.pending}>
               {submit.pending ? '보내는 중…' : '문의 보내기'}
             </Button>
@@ -217,6 +246,7 @@ export function InquiryPage() {
             )}
           </Card>
 
+          {USE_MOCK && (
           <Card title="자주 묻는 질문">
             <LoadState status={faqs.status} errorText={faqs.error?.message} onRetry={faqs.reload} />
             {faqs.data?.length === 0 && <p className={page.muted}>등록된 질문이 없어요.</p>}
@@ -229,6 +259,7 @@ export function InquiryPage() {
               ))}
             </div>
           </Card>
+          )}
         </div>
       </div>
     </div>

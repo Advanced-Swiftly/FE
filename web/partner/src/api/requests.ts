@@ -46,7 +46,17 @@ export function toRequestItem(d: RequestItemDto, storeId: string): PartnerReques
   };
 }
 
-type ListItemDto = { requestId?: RawId; applicationId?: RawId; status?: RequestStatus; kind?: string; eventId?: RawId; adType?: string; submittedAt?: string | null; createdAt?: string | null };
+/**
+ * BE 상태 → 화면 상태. 입장 조건 요청 · 사업자 인증의 보완 요청은 NEEDS_SUPPLEMENT,
+ * 이벤트 · 광고 신청은 NEEDS_INFO 라서 화면에서는 하나(NEEDS_INFO)로 다뤄요.
+ */
+export function toRequestStatus(s: string | null | undefined): RequestStatus | null {
+  if (!s) return null;
+  return (s === 'NEEDS_SUPPLEMENT' ? 'NEEDS_INFO' : s) as RequestStatus;
+}
+const AD_TYPE_LABEL: Record<string, string> = { RECOMMENDED: '지도 추천 노출', BANNER: '배너' };
+
+type ListItemDto = { requestId?: RawId; applicationId?: RawId; status?: string; kind?: string; eventId?: RawId; adType?: string; submittedAt?: string | null; createdAt?: string | null };
 
 /**
  * 요청 처리 현황 — 세 목록 API 를 각각 불러요 (현재 매장 기준)
@@ -56,7 +66,7 @@ type ListItemDto = { requestId?: RawId; applicationId?: RawId; status?: RequestS
  * 세 목록을 합친 전체 건수 · 정렬 · 다음 페이지 기준이 없어 첫 페이지만, 받은 순서대로 보여 주고 요약은 null 이에요.
  * 진행 중 · 완료 필터는 각 목록의 첫 페이지 안에서만 걸러요.
  */
-async function getSplitRequestPage(storeId: string, type: RequestTypeFilter, status: RequestStatusFilter, cursor: string | null): Promise<RequestPage> {
+async function getSplitRequestPage(storeId: string, type: RequestTypeFilter, status: RequestStatusFilter, cursor: string | null, limit?: number): Promise<RequestPage> {
   if (cursor) return { summary: null, items: [], nextCursor: null };
   const want = (k: 'CONDITION' | 'EVENT_AD') => type === 'ALL' || type === k;
   const [cond, events, ads] = await Promise.all([
@@ -67,16 +77,19 @@ async function getSplitRequestPage(storeId: string, type: RequestTypeFilter, sta
   const IN_PROGRESS: RequestStatus[] = ['RECEIVED', 'IN_REVIEW', 'NEEDS_INFO'];
   const row = (d: ListItemDto, kind: 'CONDITION' | 'EVENT_AD', appKind?: 'EVENT' | 'AD'): PartnerRequest | null => {
     const id = toId(kind === 'CONDITION' ? d.requestId : d.applicationId);
-    if (!id || !d.status) return null;
-    const summaryText = appKind === 'EVENT' ? `댕댕로드 참여 신청${toId(d.eventId) ? ` · 이벤트 ${toId(d.eventId)}` : ''}` : appKind === 'AD' ? `광고 신청${d.adType ? ` · ${d.adType}` : ''}` : '입장 조건 변경 요청';
-    return { id, storeId, kind, appKind, status: d.status, group: IN_PROGRESS.includes(d.status) ? 'IN_PROGRESS' : 'DONE', summaryText, submittedAt: d.submittedAt ?? d.createdAt ?? '' };
+    const st = toRequestStatus(d.status);
+    if (!id || !st) return null;
+    const summaryText = appKind === 'EVENT' ? `댕댕로드 참여 신청${toId(d.eventId) ? ` · 이벤트 ${toId(d.eventId)}` : ''}` : appKind === 'AD' ? `광고 신청${d.adType ? ` · ${AD_TYPE_LABEL[d.adType] ?? d.adType}` : ''}` : '입장 조건 변경 요청';
+    // 목록 응답에 접수 시각이 없으면 빈 값 (화면은 '–')
+    return { id, storeId, kind, appKind, status: st, group: IN_PROGRESS.includes(st) ? 'IN_PROGRESS' : 'DONE', summaryText, submittedAt: d.submittedAt ?? d.createdAt ?? '' };
   };
   const items = [
     ...cond.map((d) => row(d, 'CONDITION')),
     ...events.map((d) => row(d, 'EVENT_AD', 'EVENT')),
     ...ads.map((d) => row(d, 'EVENT_AD', 'AD')),
   ].filter((x): x is PartnerRequest => x !== null && (status === 'ALL' || x.group === status));
-  return { summary: null, items, nextCursor: null };
+  // 대시보드처럼 개수를 정해 부르면 그만큼만 (세 목록을 합친 정렬 기준이 없어 받은 순서 그대로)
+  return { summary: null, items: limit ? items.slice(0, limit) : items, nextCursor: null };
 }
 
 /** F-WREQ-01 한 페이지. 대시보드 최근 요청은 limit=3 (명세) */
@@ -101,7 +114,7 @@ export async function getRequestPage(storeId: string, opts: { type?: RequestType
       nextCursor: start + limit < rows.length ? String(start + limit) : null,
     });
   } else {
-    return getSplitRequestPage(storeId, type, status, opts.cursor ?? null);
+    return getSplitRequestPage(storeId, type, status, opts.cursor ?? null, opts.limit);
   }
   return { summary: dto.summary, items: dto.items.map((d) => toRequestItem(d, storeId)), nextCursor: dto.nextCursor };
 }
@@ -114,7 +127,8 @@ export interface ConditionRequestDetailDto {
   /** 매장 ID — 이전 명세 placeId · API 문서 storeId */
   placeId?: RawId;
   storeId?: RawId;
-  status: RequestStatus;
+  /** BE 는 NEEDS_SUPPLEMENT 로 보내요 */
+  status: RequestStatus | 'NEEDS_SUPPLEMENT';
   submittedAt?: string | null;
   lastSubmittedAt?: string | null;
   baseVersion?: number | null;
@@ -137,10 +151,12 @@ function toAttachment(e: NonNullable<ConditionRequestDetailDto['evidences']>[num
 }
 
 export function toRequestDetail(d: ConditionRequestDetailDto): ConditionRequestDetail {
+  const status = toRequestStatus(d.status) ?? 'RECEIVED';
   return {
     id: toId(d.requestId) ?? '',
+    // 실제 BE 상세({ requestId, status, reviewComment })에는 매장 ID 가 없어 빈 값이에요 (화면은 매장 확인을 건너뛰고, 소유 확인은 서버가 해요)
     storeId: toStoreId(d) ?? '',
-    status: d.status,
+    status,
     // 상세 응답 예시에 없는 값은 빈 값으로 받아요 (화면이 멈추지 않게)
     submittedAt: d.submittedAt ?? '',
     lastSubmittedAt: d.lastSubmittedAt ?? d.submittedAt ?? '',
@@ -153,8 +169,9 @@ export function toRequestDetail(d: ConditionRequestDetailDto): ConditionRequestD
     evidences: (d.evidences ?? []).map(toAttachment),
     reason: d.reason ?? d.reviewComment ?? null,
     history: d.history ?? [],
-    canCancel: d.canCancel === true,
-    canResubmit: d.canResubmit === true,
+    // 가능 여부가 응답에 없으면 BE 규칙대로 정해요 (ConditionRequest.canCancel: 접수 · 보완 요청 / canResubmit: 보완 요청)
+    canCancel: typeof d.canCancel === 'boolean' ? d.canCancel : status === 'RECEIVED' || status === 'NEEDS_INFO',
+    canResubmit: typeof d.canResubmit === 'boolean' ? d.canResubmit : status === 'NEEDS_INFO',
   };
 }
 

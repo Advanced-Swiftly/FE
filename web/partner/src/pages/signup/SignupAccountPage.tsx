@@ -1,3 +1,4 @@
+import { USE_MOCK } from '@/api/client';
 import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { checkLoginIdAvailable, createAccount, digitsOnly, getTerms, sendPhoneCode, verifyPhoneCode } from '@/api/account';
@@ -63,7 +64,8 @@ export function SignupAccountPage() {
   const pwMatch = pw2.length > 0 && pw === pw2;
   const requiredTerms = terms.filter((t) => t.required);
   const requiredAgreed = requiredTerms.length > 0 && requiredTerms.every((t) => agreed[t.code]);
-  const canSubmit = emailOk === true && pwValid && pwMatch && name.trim().length > 0 && phoneOk === true && verificationToken !== '' && requiredAgreed;
+  // 서버 계정은 휴대폰 번호로 로그인해서 아이디(이메일) · 중복 확인이 없어요 (BE 가입 요청에 아이디 필드 없음)
+  const canSubmit = (!USE_MOCK || emailOk === true) && pwValid && pwMatch && name.trim().length > 0 && phoneOk === true && verificationToken !== '' && requiredAgreed;
 
   const onCheckEmail = async () => {
     if (!EMAIL_RE.test(email)) {
@@ -130,6 +132,7 @@ export function SignupAccountPage() {
       <SignupSteps current={1} />
 
       <form aria-label="계정 정보" className={styles.form} onSubmit={onSubmit} noValidate>
+        {USE_MOCK && (
         <Field label="아이디 (이메일)" htmlFor="su-email" message={emailMessage}>
           <InputRow>
             <TextInput
@@ -148,6 +151,7 @@ export function SignupAccountPage() {
             </Button>
           </InputRow>
         </Field>
+        )}
 
         <Field label="비밀번호" htmlFor="su-pw">
           <TextInput id="su-pw" type="password" autoComplete="new-password" aria-describedby="su-pw-rules" value={pw} onChange={(e) => setPw(e.target.value)} />
@@ -280,7 +284,7 @@ export function SignupAccountPage() {
         <Button type="submit" size="lg" fullWidth disabled={!canSubmit || submit.pending}>
           다음 · 업체 인증
         </Button>
-        {!canSubmit && <p className={styles.lead}>아이디 중복 확인, 비밀번호, 휴대폰 인증, 필수 약관 동의를 마치면 다음으로 넘어갈 수 있어요.</p>}
+        {!canSubmit && <p className={styles.lead}>{USE_MOCK ? '아이디 중복 확인, ' : ''}비밀번호, 휴대폰 인증, 필수 약관 동의를 마치면 다음으로 넘어갈 수 있어요.</p>}
       </form>
     </>
   );

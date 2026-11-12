@@ -1,3 +1,5 @@
+import { USE_MOCK } from '@/api/client';
+import { ServerPolicyReviewPage } from './ServerPolicyReview';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toApiError } from '@/api/errors';
@@ -52,7 +54,12 @@ const DONE_TEXT: Record<string, string> = {
 };
 
 /** UI-O-003 AI 정책 후보 · 업체 변경 요청 검토 (/queue/policy/:id) */
+/** 서버 모드는 실제 BE 정책 구조(견종 · 준비물 · 예방접종)로 검토해요 */
 export function PolicyReviewPage() {
+  return USE_MOCK ? <MockPolicyReviewPage /> : <ServerPolicyReviewPage />;
+}
+
+function MockPolicyReviewPage() {
   const { id = '' } = useParams();
   const review = useFetch(`policy:${id}`, () => getConditionReview(id));
 

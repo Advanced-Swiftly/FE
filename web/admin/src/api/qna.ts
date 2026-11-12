@@ -16,7 +16,8 @@ interface InquiryCommonDto {
   inquiryId: string | number;
   authorType?: QnaItem['author'];
   author?: { userId: string; displayName: string | null } | null;
-  user?: { userId: string | number } | null;
+  /** 실제 BE 상세: { userId, name } */
+  user?: { userId: string | number; name?: string | null } | null;
   place?: { placeId: string; name: string } | null;
   title?: string | null;
   submittedAt?: string;
@@ -41,7 +42,7 @@ interface InquiryDetailDto extends InquiryCommonDto {
 }
 
 // 작성자 구분이 없으면 보호자 · 업체로 짐작하지 않아요
-const authorName = (d: InquiryCommonDto) => d.author?.displayName ?? (d.authorType === 'BUSINESS' ? (d.place?.name ?? '업체') : d.authorType === 'GUARDIAN' ? '보호자' : d.user?.userId != null ? `회원 ${d.user.userId}` : '작성자 정보 없음');
+const authorName = (d: InquiryCommonDto) => d.author?.displayName ?? (d.authorType === 'BUSINESS' ? (d.place?.name ?? '업체') : d.authorType === 'GUARDIAN' ? '보호자' : d.user?.name ? d.user.name : d.user?.userId != null ? `회원 ${d.user.userId}` : '작성자 정보 없음');
 
 function common(d: InquiryCommonDto) {
   return {
@@ -67,15 +68,16 @@ export async function getQnaPage(opts: { tab: QnaStatusTab; who: 'ALL' | NonNull
     const rows = MOCK_QNA.filter((q) => opts.tab === 'ALL' || (opts.tab === 'WAITING' ? !q.answer : Boolean(q.answer))).filter((q) => opts.who === 'ALL' || q.author === opts.who);
     return mockResponse(paginate(rows.map(toListItem), opts.cursor, 20));
   }
-  // 문의 목록 — GET /admin/inquiries?status&category&page → { items: [{ inquiryId, title, status }] }
-  // 작성자 구분(authorType) 필터는 이 API 에 없어 보내지 않아요. 다음 페이지 근거가 없어 첫 페이지만 보여 줘요.
-  if (opts.cursor) return { items: [], nextCursor: null };
+  // 문의 목록 — GET /admin/inquiries?status&category&page → { items: [{ inquiryId, category, title, status, createdAt }] } (20건씩, page 1부터)
+  // 작성자 구분(authorType) 필터 · 첨부 수 · 미리보기는 이 API 에 없어요 (첨부 수는 null 로 둬요).
+  const pageNo = opts.cursor ? Number(opts.cursor) : 1;
   const { data } = await apiClient.get<{ items?: (InquiryListDto & { status?: 'WAITING' | 'ANSWERED' })[] | null }>('/admin/inquiries', {
-    params: { status: opts.tab === 'ALL' ? undefined : opts.tab },
+    params: { status: opts.tab === 'ALL' ? undefined : opts.tab, page: pageNo },
   });
+  const rows = data?.items ?? [];
   return {
-    items: (data?.items ?? []).map((d) => ({ ...common(d), attachmentCount: d.attachmentCount ?? 0, answered: d.status ? d.status === 'ANSWERED' : (d.lastAnsweredAt ?? null) !== null, preview: d.preview ?? '' })).filter((x) => x.id !== ''),
-    nextCursor: null,
+    items: rows.map((d) => ({ ...common(d), attachmentCount: d.attachmentCount ?? (null as unknown as number), answered: d.status ? d.status === 'ANSWERED' : (d.lastAnsweredAt ?? null) !== null, preview: d.preview ?? '' })).filter((x) => x.id !== ''),
+    nextCursor: rows.length >= 20 ? String(pageNo + 1) : null,
   };
 }
 

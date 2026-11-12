@@ -1,3 +1,4 @@
+import { USE_MOCK } from '@/api/client';
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { getQueuePage, getQueueSummary, type QueueTab } from '@/api/queue';
@@ -100,12 +101,13 @@ export function QueuePage() {
             <label htmlFor="q-area" className="sr-only">
               지역
             </label>
-            <Select id="q-area" value={area} onChange={(e) => setArea(e.target.value)} className={styles.area}>
+            {/* 서버 대기열 목록에는 지역 필터가 없어(지역은 이벤트 신청에만 ID 로 있어요) 목업에서만 보여요 */}
+            {USE_MOCK && <Select id="q-area" value={area} onChange={(e) => setArea(e.target.value)} className={styles.area}>
               <option value="">전체 지역</option>
               {AREAS.map((a) => (
                 <option key={a}>{a}</option>
               ))}
-            </Select>
+            </Select>}
           </div>
         </div>
 
@@ -130,7 +132,7 @@ export function QueuePage() {
                   {rows.map((q) => {
                     const age = daysSince(q.submittedAt, today);
                     return (
-                      <tr key={q.id} className={styles.row} onClick={() => navigate(queuePath(q))}>
+                      <tr key={`${q.type}:${q.id}`} className={styles.row} onClick={() => navigate(queuePath(q))}>
                         <td>
                           <Tag tone={TYPE[q.type].tone}>{TYPE[q.type].label}</Tag>
                         </td>
@@ -138,9 +140,11 @@ export function QueuePage() {
                           <Link to={queuePath(q)} className={styles.store} onClick={(e) => e.stopPropagation()}>
                             {q.storeName}
                           </Link>
-                          <span className={table.sub}>
-                            {q.area} · {q.category}
-                          </span>
+                          {(q.area || q.category) && (
+                            <span className={table.sub}>
+                              {[q.area, q.category].filter(Boolean).join(' · ')}
+                            </span>
+                          )}
                         </td>
                         <td>
                           {q.summary}

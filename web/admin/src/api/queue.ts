@@ -96,13 +96,89 @@ export async function getQueuePage(opts: { tab: QueueTab; q?: string; region?: s
       .filter((q) => !opts.region || q.region === opts.region);
     dto = await mockResponse(paginate(rows, opts.cursor, limit));
   } else {
-    dto = (
-      await apiClient.get<{ items: QueueItemDto[]; nextCursor: string | null }>('/admin/review-queue', {
-        params: { type: opts.tab, q: opts.q?.trim() || undefined, region: opts.region || undefined, cursor: opts.cursor ?? undefined, limit },
-      })
-    ).data;
+    return serverQueuePage(opts.tab, opts.q, opts.cursor);
   }
   return { items: dto.items.map(toQueueItem), nextCursor: dto.nextCursor };
+}
+
+// ─── 서버 모드 대기열 — 실제 BE 에는 통합 대기열 API 가 없어 종류별 목록을 합쳐요 ───
+// - 입장 조건 요청: GET /admin/condition-requests?kind&status&page → { items: [{ requestId, storeId, kind, status, createdAt }] }
+// - 이벤트 참여 신청: GET /admin/event-applications?status&page → { items: [{ applicationId, storeId, storeName, eventId, regionIds, status, createdAt }] }
+// - 광고 신청: GET /admin/ad-applications?status&page → { items: [{ applicationId, storeId, storeName, adType, startDate, endDate, status, createdAt }] }
+// 목록은 20건씩(page 1부터)이라 '더 보기'는 다음 page 를 불러요. 대기 상태(접수 · 검토 중)는 page 안에서 걸러요.
+
+const BE_PAGE_SIZE = 20;
+type CondListDto = { requestId: RawId; storeId?: RawId; kind?: string; status?: string; createdAt?: string | null };
+type EventAppListDto = { applicationId: RawId; storeId?: RawId; storeName?: string | null; eventId?: RawId; regionIds?: RawId[] | null; status?: string; createdAt?: string | null };
+type AdAppListDto = { applicationId: RawId; storeId?: RawId; storeName?: string | null; adType?: string | null; startDate?: string | null; endDate?: string | null; status?: string; createdAt?: string | null };
+
+const AD_TYPE_LABEL: Record<string, string> = { RECOMMENDED: '지도 추천 노출', BANNER: '배너' };
+/** BE 의 보완 요청 상태(조건 NEEDS_SUPPLEMENT · 신청 NEEDS_INFO)를 화면 상태 하나로 */
+const toQueueStatus = (s: string | undefined): QueueStatus | null =>
+  s === 'RECEIVED' || s === 'IN_REVIEW' ? s : s === 'NEEDS_SUPPLEMENT' || s === 'NEEDS_INFO' ? 'NEEDS_INFO' : null;
+
+const storeNameCache = new Map<string, Promise<string | null>>();
+/** 조건 요청 목록에는 업체명이 없어 업체 상세(GET /admin/stores/{storeId})에서 이름만 가져와요 (실패하면 null) */
+export function adminStoreName(storeId: string): Promise<string | null> {
+  let p = storeNameCache.get(storeId);
+  if (!p) {
+    p = apiClient
+      .get<{ name?: string | null }>(`/admin/stores/${enc(storeId)}`)
+      .then((r) => r.data?.name ?? null)
+      .catch(() => {
+        storeNameCache.delete(storeId);
+        return null;
+      });
+    storeNameCache.set(storeId, p);
+  }
+  return p;
+}
+
+async function serverQueuePage(tab: QueueTab, q: string | undefined, cursor: string | null): Promise<Page<QueueItem>> {
+  const pageNo = cursor ? Number(cursor) : 1;
+  const needsInfo = tab === 'NEEDS_INFO';
+  const wantCond = tab === 'BUSINESS_CHANGE' || tab === 'AI_CANDIDATE' || needsInfo;
+  const wantApps = tab === 'EVENT_AD' || needsInfo;
+  const condKind = tab === 'AI_CANDIDATE' ? 'AI_CANDIDATE' : tab === 'BUSINESS_CHANGE' ? 'CONDITION_REQUEST' : undefined;
+  // 처리 끝난 건이 많아도 첫 페이지가 비지 않게, 대기 상태(접수 · 검토 중 / 보완 대기)별로 서버에서 걸러 받아요
+  let full = false;
+  const byStatus = async <T,>(path: string, statuses: string[], extra: Record<string, string | undefined> = {}): Promise<T[]> => {
+    const lists = await Promise.all(statuses.map((status) => apiClient.get<{ items?: T[] | null }>(path, { params: { ...extra, status, page: pageNo } }).then((r) => r.data?.items ?? [])));
+    if (lists.some((l) => l.length >= BE_PAGE_SIZE)) full = true;
+    return lists.flat();
+  };
+  const waiting = ['RECEIVED', 'IN_REVIEW'];
+  const [cond, events, ads] = await Promise.all([
+    wantCond ? byStatus<CondListDto>('/admin/condition-requests', needsInfo ? ['NEEDS_SUPPLEMENT'] : waiting, { kind: condKind }) : Promise.resolve([] as CondListDto[]),
+    wantApps ? byStatus<EventAppListDto>('/admin/event-applications', needsInfo ? ['NEEDS_INFO'] : waiting) : Promise.resolve([] as EventAppListDto[]),
+    wantApps ? byStatus<AdAppListDto>('/admin/ad-applications', needsInfo ? ['NEEDS_INFO'] : waiting) : Promise.resolve([] as AdAppListDto[]),
+  ]);
+  const keep = (st: QueueStatus | null): st is QueueStatus => st !== null && (needsInfo ? st === 'NEEDS_INFO' : st !== 'NEEDS_INFO');
+  const names = await Promise.all(cond.map((c) => (toId(c.storeId) ? adminStoreName(toId(c.storeId) as string) : Promise.resolve(null))));
+  const rows: QueueItem[] = [];
+  cond.forEach((c, i) => {
+    const st = toQueueStatus(c.status);
+    const id = toId(c.requestId);
+    if (!id || !keep(st)) return;
+    const ai = c.kind === 'AI_CANDIDATE';
+    const storeId = toId(c.storeId) ?? '';
+    rows.push({ id, type: ai ? 'AI_POLICY' : 'STORE_CHANGE', storeId, storeName: names[i] ?? (storeId ? `업체 ${storeId}` : ''), area: '' as QueueItem['area'], category: '', summary: c.kind === 'RECHECK' ? '조건 재확인 요청' : ai ? 'AI 정책 후보' : '입장 조건 변경 요청', evidence: '—', submittedAt: c.createdAt ?? '', status: st });
+  });
+  events.forEach((a) => {
+    const st = toQueueStatus(a.status);
+    const id = toId(a.applicationId);
+    if (!id || !keep(st)) return;
+    rows.push({ id, type: 'EVENT', storeId: toId(a.storeId) ?? '', storeName: a.storeName ?? '', area: '' as QueueItem['area'], category: '', summary: `댕댕로드 참여 신청${toId(a.eventId) ? ` · 이벤트 ${toId(a.eventId)}` : ''}`, evidence: '—', submittedAt: a.createdAt ?? '', status: st });
+  });
+  ads.forEach((a) => {
+    const st = toQueueStatus(a.status);
+    const id = toId(a.applicationId);
+    if (!id || !keep(st)) return;
+    rows.push({ id, type: 'AD', storeId: toId(a.storeId) ?? '', storeName: a.storeName ?? '', area: '' as QueueItem['area'], category: '', summary: `광고 신청 · ${AD_TYPE_LABEL[a.adType ?? ''] ?? a.adType ?? ''}`, evidence: a.startDate && a.endDate ? `${formatDate(a.startDate)} – ${formatDate(a.endDate)}` : '—', submittedAt: a.createdAt ?? '', status: st });
+  });
+  const word = q?.trim();
+  const items = word ? rows.filter((r) => r.storeName.includes(word)) : rows;
+  return { items, nextCursor: full ? String(pageNo + 1) : null };
 }
 
 /** F-OREV-01 대기열 요약 (badgeCount 는 사이드바가 따로 써요) */
@@ -455,13 +531,105 @@ function mockApplicationDto(id: string): ApplicationReviewDto {
   return d;
 }
 
+/** 실제 BE 상태 → 운영자가 할 수 있는 처리 (ApplicationStatus.afterReview: 접수 → 검토 시작, 검토 중 → 승인 · 반려) */
+function allowedByStatus(status: string | undefined): ApplicationAction[] {
+  if (status === 'RECEIVED') return ['START_REVIEW'];
+  if (status === 'IN_REVIEW') return ['APPROVE', 'REJECT'];
+  return [];
+}
+
+let regionNames: Promise<Map<string, string>> | null = null;
+/** 지역 이름 — GET /regions → { regions: [{ regionId, name }] } */
+function getRegionNames() {
+  regionNames ??= apiClient
+    .get<{ regions?: { regionId: RawId; name: string }[] | null }>('/regions')
+    .then((r) => new Map((r.data?.regions ?? []).flatMap((x) => (toId(x.regionId) ? [[toId(x.regionId) as string, x.name] as [string, string]] : []))))
+    .catch(() => {
+      regionNames = null;
+      return new Map<string, string>();
+    });
+  return regionNames;
+}
+
+/**
+ * 이벤트 참여 신청은 BE 에 운영자 상세 GET 이 없어서 목록(GET /admin/event-applications?page)에서 같은 신청 ID 를 찾아요.
+ * 광고 신청 목록과 섞지 않아요 (경로가 달라 같은 숫자 ID 여도 다른 신청이에요).
+ */
+/** 이벤트 신청 목록을 마지막 페이지(20건 미만)까지 넘기며 같은 신청 ID 를 찾아요. 서버가 같은 페이지를 다시 주면 멈춰요 */
+async function scanEventApplications(id: string, status?: string): Promise<EventAppListDto | null> {
+  const seen = new Set<string>();
+  for (let pageNo = 1; ; pageNo += 1) {
+    const { data } = await apiClient.get<{ items?: EventAppListDto[] | null }>('/admin/event-applications', { params: { status, page: pageNo } });
+    const items = data?.items ?? [];
+    const hit = items.find((x) => toId(x.applicationId) === id);
+    if (hit) return hit;
+    const sig = items.map((x) => toId(x.applicationId)).join(',');
+    if (items.length < BE_PAGE_SIZE || seen.has(sig)) return null;
+    seen.add(sig);
+  }
+}
+
+async function findEventApplication(id: string): Promise<EventAppListDto> {
+  // 검토할 건은 대부분 대기 상태라 상태별 목록(짧아요)부터 찾고, 없으면 전체 목록을 끝까지 찾아요 (페이지 수 상한 없음).
+  for (const status of ['RECEIVED', 'IN_REVIEW', 'NEEDS_INFO', undefined]) {
+    const hit = await scanEventApplications(id, status);
+    if (hit) return hit;
+  }
+  throw mockError('NOT_FOUND');
+}
+
+type AdAppDetailDto = AdAppListDto & { creativeUrl?: string | null; message?: string | null; reviewNote?: string | null; reviewedAt?: string | null };
+
+async function serverApplicationReview(id: string, kind: ApplicationKind): Promise<ApplyReview> {
+  const base = { prevApplicationId: null, nextApplicationId: null, checks: [], checkedAt: null, eligibilityAtSubmit: [], introCheck: null, stampRoad: null, ad: null, displayStatus: null, reviewStartedAt: null };
+  if (kind === 'AD') {
+    // 광고 신청 심사 상세 — GET /admin/ad-applications/{applicationId}
+    const { data: d } = await apiClient.get<AdAppDetailDto>(`/admin/ad-applications/${enc(id)}`);
+    return {
+      ...base,
+      id: toId(d.applicationId) ?? id,
+      type: 'AD',
+      storeId: toId(d.storeId) ?? '',
+      storeName: d.storeName ?? '',
+      status: d.status ?? '',
+      submittedAt: d.createdAt ?? '',
+      allowedActions: allowedByStatus(d.status),
+      title: AD_TYPE_LABEL[d.adType ?? ''] ?? d.adType ?? '광고 신청',
+      details: [
+        { label: '광고 종류', value: AD_TYPE_LABEL[d.adType ?? ''] ?? d.adType ?? '—' },
+        { label: '기간', value: d.startDate && d.endDate ? `${formatDate(d.startDate)} – ${formatDate(d.endDate)}` : '—' },
+        { label: '광고 소재', value: d.creativeUrl ?? '—', href: d.creativeUrl ?? undefined },
+        { label: '전달사항', value: d.message?.trim() || '—' },
+        ...(d.reviewNote ? [{ label: '처리 사유', value: d.reviewNote }] : []),
+      ],
+    };
+  }
+  const [a, names] = await Promise.all([findEventApplication(id), getRegionNames()]);
+  const regions = (a.regionIds ?? []).map((r) => toId(r)).filter((r): r is string => !!r);
+  return {
+    ...base,
+    id: toId(a.applicationId) ?? id,
+    type: 'STAMP_ROAD',
+    storeId: toId(a.storeId) ?? '',
+    storeName: a.storeName ?? '',
+    status: a.status ?? '',
+    submittedAt: a.createdAt ?? '',
+    allowedActions: allowedByStatus(a.status),
+    title: `이벤트 ${toId(a.eventId) ?? ''} 참여`,
+    details: [
+      { label: '이벤트', value: toId(a.eventId) ? `이벤트 ${toId(a.eventId)}` : '—' },
+      { label: '참여 희망 지역', value: regions.length ? regions.map((r) => names.get(r) ?? `지역 ${r}`).join(' · ') : '—' },
+    ],
+    detailNote: '이벤트 참여 신청은 서버에 운영자 상세 조회가 없어 목록에 있는 값만 보여 줘요 (전달사항 · 이벤트 이름 없음).',
+  };
+}
+
 /** F-OAPP-01 신청 상세 */
 export async function getApplicationReview(id: string, kind?: ApplicationKind | null): Promise<ApplyReview> {
   if (USE_MOCK) return toApplyReview(await mockResponse(mockApplicationDto(id)));
-  // 이벤트 참여 신청 심사 상세 · 광고 신청 심사 상세 — 종류를 모르면 짐작하지 않아요
+  // 이벤트 · 광고 신청은 경로가 달라요 — 종류를 모르면 짐작하지 않아요
   if (!kind) throw mockError('FIELD_NOT_SUPPORTED', { field: 'type' });
-  const { data } = await apiClient.get<ApplicationReviewDto>(`${appBase(kind)}/${enc(id)}`);
-  return toApplyReview(data, kind);
+  return serverApplicationReview(id, kind);
 }
 
 const APP_STATE_CONFLICT = 'APPLICATION_STATE_CONFLICT';
@@ -490,9 +658,9 @@ export async function decideApplication(id: string, action: ApplicationAction, r
   if (!kind) throw mockError('FIELD_NOT_SUPPORTED', { field: 'type' });
   void body;
   const patchBody = action === 'REJECT' ? { action, comment: reason.trim() } : { action };
-  const { data } = await apiClient.patch<{ applicationId?: string | number; status?: string; nextApplicationId?: string | number | null }>(`${appBase(kind)}/${enc(id)}`, patchBody);
-  // 다음 신청 ID 는 응답 예시에 없어요. 오면 쓰고, 없으면 null
-  return { nextApplicationId: toId(data?.nextApplicationId ?? null) };
+  // 응답은 { applicationId, status } 뿐이라 다음 신청 ID 는 없어요 (대기열로 돌아가요)
+  await apiClient.patch<{ applicationId?: string | number; status?: string }>(`${appBase(kind)}/${enc(id)}`, patchBody);
+  return { nextApplicationId: null };
 }
 
 /** 비교 표 행: 변경안이 다루는 항목 + 현재와 달라진 항목 */

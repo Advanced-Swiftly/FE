@@ -39,25 +39,29 @@ const toListItem = (v: VaccineSubmission): VaccineListItem => ({
 export async function getVaccinePage(status: VaccineStatus, cursor: string | null): Promise<Page<VaccineListItem>> {
   if (USE_MOCK) return mockResponse(paginate(MOCK_VACCINES.filter((v) => v.status === status).map(toListItem), cursor, 20));
   // 예방접종 검토 목록 — GET /admin/vaccination-records?status&page → { items: [{ recordId, dogName, status }] }
-  // 상태 필터 값(ANALYZED · OPERATOR_REVIEW · NEEDS_MORE · REUPLOAD)에 '확인 완료'가 없어 그 탭은 부르지 않아요 (백엔드 확인 사항).
-  if (status === 'VERIFIED') throw mockError('FIELD_NOT_SUPPORTED', { field: 'status' });
-  if (cursor) return { items: [], nextCursor: null };
-  const { data } = await apiClient.get<{ items?: VaccineListDto[] | null }>('/admin/vaccination-records', { params: { status } });
+  // BE 목록은 검토할 상태(ANALYZED · NEEDS_MANUAL_REVIEW · OPERATOR_REVIEW)만 줘요. status 를 비우면 셋 다 와요 (20건씩, page 1부터).
+  // '확인 완료(VERIFIED)' · '재업로드 요청(REJECTED)' 은 목록에서 고를 수 없어 그 탭은 부르지 않아요 (백엔드 확인 사항).
+  if (status !== 'OPERATOR_REVIEW') throw mockError('FIELD_NOT_SUPPORTED', { field: 'status' });
+  const pageNo = cursor ? Number(cursor) : 1;
+  const { data } = await apiClient.get<{ items?: VaccineListDto[] | null }>('/admin/vaccination-records', { params: { page: pageNo } });
+  const rows = data?.items ?? [];
   return {
-    items: (data?.items ?? [])
+    items: rows
       .map((d) => ({
         id: toId(d.recordId ?? d.docId) ?? '',
-        status: d.status,
+        // BE 검토 대기 상태 세 가지(ANALYZED · NEEDS_MANUAL_REVIEW · OPERATOR_REVIEW)는 화면의 '확인 대기' 하나로 봐요
+        status: (['ANALYZED', 'NEEDS_MANUAL_REVIEW', 'OPERATOR_REVIEW'].includes(String(d.status)) ? 'OPERATOR_REVIEW' : d.status) as VaccineStatus,
         dogName: d.dogName ?? '',
         owner: d.guardian?.name ?? '',
         appliedAt: d.appliedAt ?? '',
         resubmitted: Boolean(d.resubmitted),
         breed: d.breed ?? '',
-        weightKg: d.weightKg ?? 0,
+        // 목록 응답에 몸무게가 없으면 0 으로 채우지 않아요 (화면은 빈 칸)
+        weightKg: (d.weightKg ?? null) as unknown as number,
         vaccine: d.vaccine ?? '',
       }))
       .filter((x) => x.id !== ''),
-    nextCursor: null,
+    nextCursor: rows.length >= 20 ? String(pageNo + 1) : null,
   };
 }
 

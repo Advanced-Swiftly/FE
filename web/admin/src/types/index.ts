@@ -147,6 +147,10 @@ export interface ApplyReview {
   allowedActions: ApplicationAction[];
   prevApplicationId: string | null;
   nextApplicationId: string | null;
+  /** 서버 모드 — BE 가 주는 값만 담은 제목 · 신청 내용 (있으면 stampRoad · ad 대신 써요) */
+  title?: string;
+  details?: { label: string; value: string; href?: string }[];
+  detailNote?: string;
 }
 
 /* ───────── 예방접종 증명서 (명세 F-OVAC) ───────── */
@@ -350,7 +354,10 @@ export interface StampEntry {
   canceled: boolean;
   canceledAt: string | null;
   contactPhoneMasked: string;
-  hasAddressSnapshot: boolean;
+  /** 서버 응답에 없으면 null (화면 '—') */
+  hasAddressSnapshot: boolean | null;
+  /** 서버 모드: 당첨 취소(CANCEL_WIN)로 CANCELED 가 된 응모 — 탈퇴 등 응모 취소와 구분해요 */
+  canceledKind?: 'WIN';
   /** WON 이 아니면 null */
   awardedPrize: { prizeId: string; name: string } | null;
   /** 추첨 전 null */
@@ -369,6 +376,8 @@ export interface DrawRun {
   wonCount: number | null;
   notWonCount: number | null;
   canceledDuringRunCount: number | null;
+  /** 서버 모드: 당첨 뒤 취소된 건수 (draw-result winners 중 CANCELED) */
+  canceledWinCount?: number | null;
   failure: { code: string; message: string } | null;
   publication: { publishedAt: string | null; notificationsQueued: number };
 }

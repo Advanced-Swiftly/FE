@@ -31,6 +31,11 @@ const ERROR_TEXT: Record<string, string> = {
   VALIDATION_ERROR: '입력한 내용을 다시 확인해 주세요.',
   UNAUTHORIZED: '로그인이 필요해요. 다시 로그인해 주세요.',
   FORBIDDEN: '운영자 계정으로만 쓸 수 있어요.',
+  ADMIN_POLICY_READ_UNSUPPORTED: '운영자가 업체의 현재 입장 정책을 읽는 서버 API 가 없어 여기서 보거나 바꿀 수 없어요. 조건 변경은 검토 대기열의 요청 승인으로 처리해 주세요.',
+  CONFLICT: '지금 상태에서는 처리할 수 없어요. 새로고침해 주세요.',
+  INVALID_REQUEST_STATE: '지금 상태에서는 처리할 수 없어요. 새로고침해 주세요.',
+  ROLE_NOT_ALLOWED: '운영자 계정이 아니에요. 운영자 계정으로 로그인해 주세요.',
+  INVALID_FILE: '파일이 올바르지 않아요.',
   NOT_FOUND: '정보를 찾을 수 없어요.',
   RATE_LIMITED: '잠시 후 다시 시도해 주세요.',
   SERVER_ERROR: '잠시 후 다시 시도해 주세요.',
@@ -38,7 +43,7 @@ const ERROR_TEXT: Record<string, string> = {
   // 로그인
   INVALID_REFRESH_TOKEN: '로그인이 만료됐어요. 다시 로그인해 주세요.',
   INVALID_REQUEST: '요청을 처리할 수 없어요. 입력 내용을 확인해 주세요.',
-  INVALID_CREDENTIALS: '아이디 또는 비밀번호가 맞지 않아요.',
+  INVALID_CREDENTIALS: '로그인 정보가 맞지 않아요. 휴대폰 번호(아이디)와 비밀번호를 확인해 주세요.',
   ACCOUNT_LOCKED: '로그인에 여러 번 실패해 잠시 잠겼어요. 15분 뒤 다시 시도해 주세요.',
   FIELD_NOT_SUPPORTED: '이 항목은 지금 서버 API로 바꿀 수 없어요. 운영팀 확인이 필요해요.',
   // 검토 대기열
@@ -73,18 +78,44 @@ export function errorText(code: string, fallback = '요청을 처리하지 못�
   return ERROR_TEXT[code] ?? fallback;
 }
 
+/**
+ * 실제 BE(Advanced-Swiftly/BE)의 공통 오류 코드 → 화면 코드.
+ * BE 본문은 { status, code, message, path, requestId, fieldErrors } 예요.
+ */
+const BE_CODE: Record<string, string> = {
+  COMMON_001: 'INVALID_REQUEST',
+  COMMON_002: 'NOT_FOUND',
+  COMMON_003: 'CONFLICT',
+  COMMON_500: 'SERVER_ERROR',
+  AUTH_001: 'UNAUTHORIZED',
+  AUTH_002: 'FORBIDDEN',
+  FILE_001: 'INVALID_FILE',
+  FILE_002: 'FILE_TOO_LARGE',
+  FILE_003: 'UNSUPPORTED_FILE',
+  AI_001: 'SERVER_ERROR',
+};
+/** BE 가 상황별로 적어 보내는 문구만 화면에 써요 (공통 문구 '요청을 처리할 수 없습니다.' 등은 화면 문구로 바꿔요) */
+const GENERIC_BE_MESSAGE = /^(요청을 처리할 수 없습니다|요청 값이 올바르지 않습니다|인증이 필요합니다|접근 권한이 없습니다|서버 오류가 발생했습니다|현재 상태에서는 요청을 처리할 수 없습니다|요청한 리소스를 찾을 수 없습니다|파일이 올바르지 않습니다)\.?$/;
+function beMessage(body: { message?: unknown; fieldErrors?: unknown } | undefined): string | null {
+  const fe = body?.fieldErrors && typeof body.fieldErrors === 'object' ? Object.values(body.fieldErrors as Record<string, unknown>).find((v) => typeof v === 'string' && v.trim()) : null;
+  if (typeof fe === 'string') return fe;
+  const m = typeof body?.message === 'string' ? body.message.trim() : '';
+  return m && !GENERIC_BE_MESSAGE.test(m) ? m : null;
+}
+
 /** 어떤 오류든 ApiError 로 바꿔요 (axios 오류 · 목업에서 던진 Error 모두) */
 export function toApiError(e: unknown): ApiError {
   if (e instanceof ApiError) return e;
   if (isAxiosError(e)) {
     // 오류 본문: 백엔드 API 문서 { code, message } · 이전 명세 { error: { code, message, details } } 둘 다 읽어요
-    const body = e.response?.data as { code?: string; details?: Record<string, unknown>; error?: { code?: string; details?: Record<string, unknown> } } | undefined;
-    const bodyCode = typeof body?.code === 'string' ? body.code : body?.error?.code;
-    const bodyDetails = body?.details ?? body?.error?.details ?? null;
+    const body = e.response?.data as { code?: string; message?: string; fieldErrors?: Record<string, string> | null; details?: Record<string, unknown>; error?: { code?: string; details?: Record<string, unknown> } } | undefined;
+    const rawCode = typeof body?.code === 'string' ? body.code : body?.error?.code;
+    const bodyCode = rawCode ? (BE_CODE[rawCode] ?? rawCode) : undefined;
+    const bodyDetails = body?.details ?? body?.error?.details ?? (body?.fieldErrors ? { fieldErrors: body.fieldErrors, field: Object.keys(body.fieldErrors)[0] } : null);
     if (e.response) {
       const status = e.response.status;
       const code = bodyCode ?? (status === 401 ? 'UNAUTHORIZED' : status === 403 ? 'FORBIDDEN' : status === 404 ? 'NOT_FOUND' : 'SERVER_ERROR');
-      return new ApiError(code, errorText(code), status, bodyDetails, true);
+      return new ApiError(code, beMessage(body) ?? errorText(code), status, bodyDetails, true);
     }
     return new ApiError('NETWORK_ERROR', errorText('NETWORK_ERROR'), null, null, false);
   }

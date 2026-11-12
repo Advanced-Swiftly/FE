@@ -2,25 +2,40 @@ import { apiClient, mockResponse, USE_MOCK } from './client';
 import { mockError } from './errors';
 import { clearSession, getSession, setSession, type Session } from './session';
 
-// 명세 F-OAUTH-01 ~ 03 (경로 · 필드 이름은 [제안])
+// 로그인 · 로그아웃은 업체 · 운영자 공통 API 를 써요 (실제 BE AuthController).
+//   POST /auth/login { phoneNumber, password, deviceToken? } → { user: { userId, role, name }, accessToken, refreshToken }
+//   운영자 화면은 role 이 OPERATOR 인 계정만 받아요. 다른 역할이면 받은 토큰을 바로 로그아웃으로 무효화해요.
 
-interface AuthResponseDto {
+interface LoginResponseDto {
   accessToken: string;
   refreshToken: string;
-  user: { id: string; loginId: string; role: 'OPERATOR' };
+  user: { userId?: string | number | null; role?: string | null; name?: string | null } | null;
 }
 
-/** F-OAUTH-01 운영자 로그인 — 토큰을 저장해요. 운영자 계정이 아니면 서버가 INVALID_CREDENTIALS 를 줘요. */
+/** 휴대폰 번호는 숫자만 보내요 (BE 는 010-1234-5678 · 01012345678 둘 다 받아요) */
+const digits = (v: string) => v.replace(/\D/g, '');
+
+/** 받은 토큰을 서버에서 무효화해요 (역할이 맞지 않을 때). 실패해도 로그인은 막아요 */
+async function revoke(res: LoginResponseDto) {
+  await apiClient
+    .post('/auth/logout', { refreshToken: res.refreshToken }, { headers: { Authorization: `Bearer ${res.accessToken}` } })
+    .catch(() => undefined);
+}
+
+/** F-OAUTH-01 운영자 로그인 — 아이디 자리에 가입한 휴대폰 번호를 받아요 */
 export async function adminLogin(loginId: string, password: string): Promise<Session> {
-  let res: AuthResponseDto;
+  let res: LoginResponseDto;
   if (USE_MOCK) {
     if (!loginId || password.length < 4) throw mockError('INVALID_CREDENTIALS');
-    res = await mockResponse({ accessToken: `mock-access-${Date.now()}`, refreshToken: `mock-refresh-${Date.now()}`, user: { id: 'u_ops', loginId, role: 'OPERATOR' as const } }, 400);
+    res = await mockResponse({ accessToken: `mock-access-${Date.now()}`, refreshToken: `mock-refresh-${Date.now()}`, user: { userId: 'u_ops', role: 'OPERATOR', name: loginId } }, 400);
   } else {
-    res = (await apiClient.post<AuthResponseDto>('/admin/auth/login', { loginId, password })).data;
+    res = (await apiClient.post<LoginResponseDto>('/auth/login', { phoneNumber: digits(loginId), password })).data;
   }
-  if (res.user.role !== 'OPERATOR') throw mockError('INVALID_CREDENTIALS');
-  const session: Session = { accessToken: res.accessToken, refreshToken: res.refreshToken, role: 'OPERATOR', loginId: res.user.loginId };
+  if (res.user?.role !== 'OPERATOR') {
+    if (!USE_MOCK) await revoke(res);
+    throw mockError('ROLE_NOT_ALLOWED');
+  }
+  const session: Session = { accessToken: res.accessToken, refreshToken: res.refreshToken, role: 'OPERATOR', loginId: USE_MOCK ? loginId : res.user.name || digits(loginId) };
   // 운영자 화면은 공용 PC 에서 쓸 수 있어서 브라우저를 닫으면 로그아웃돼요.
   setSession(session, false);
   return session;

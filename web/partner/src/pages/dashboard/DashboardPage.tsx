@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getConditions } from '@/api/conditions';
+import { USE_MOCK } from '@/api/client';
+import { getBreedNames, getStorePolicy } from '@/api/policy';
+import { PolicyRulesView } from '@/components/policy/PolicyRules';
 import { getRequestPage } from '@/api/requests';
 import { getVisitStats } from '@/api/stats';
 import { getDashboard } from '@/api/stores';
@@ -30,7 +33,10 @@ const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 export function DashboardPage() {
   const { store } = useCurrentStore();
   const [qrOpen, setQrOpen] = useState(false);
-  const conditions = useFetch(`conditions:${store.id}`, () => getConditions(store.id));
+  // 서버 모드는 실제 BE 정책(견종 · 준비물 · 예방접종)을 보여 줘요. 목업 조건 구조는 목업에서만 불러요
+  const conditions = useFetch(`conditions:${store.id}:${USE_MOCK}`, () => (USE_MOCK ? getConditions(store.id) : Promise.resolve(null)));
+  const policy = useFetch(`policy:${store.id}:${USE_MOCK}`, () => (USE_MOCK ? Promise.resolve(null) : getStorePolicy(store.id)));
+  const breeds = useFetch(`breeds:${USE_MOCK}`, () => (USE_MOCK ? Promise.resolve(new Map<string, string>()) : getBreedNames()));
   const summary = useFetch(`dashboard:${store.id}`, () => getDashboard(store.id));
   // 명세 F-WSTAT-01 6번: 대시보드는 오늘 포함 최근 14일을 from · to 로 불러요.
   const range = lastDays(14);
@@ -51,7 +57,9 @@ export function DashboardPage() {
 
   // 진행 중 요청 수는 F-WDASH-02 값, 내가 할 일 수는 F-WREQ-01 summary.needsAction
   const recent = requests.data?.items ?? [];
-  const fixCount = requests.data?.summary?.needsAction ?? 0;
+  // 요약이 없는 서버 목록에서는 0 으로 채우지 않고, 받은 목록의 보완 요청만 세요
+  const fixCount = requests.data?.summary?.needsAction ?? recent.filter((r) => r.status === 'NEEDS_INFO').length;
+  const summaryKnown = Boolean(requests.data?.summary);
   const latestOpen = recent.find((r) => r.group === 'IN_PROGRESS');
   const checkedAt = d?.conditionCheckedAt ?? c?.conditionCheckedAt ?? null;
   const checkedDays = checkedAt ? daysSince(checkedAt, today) : null;
@@ -88,7 +96,9 @@ export function DashboardPage() {
               ? `보완 요청 ${fixCount}건 · 내가 할 일`
               : latestOpen
                 ? `${REQUEST_STATUS_LABEL[latestOpen.status]} · ${formatDate(latestOpen.submittedAt, true)} 접수`
-                : '진행 중인 요청 없음'
+                : summaryKnown
+                  ? '진행 중인 요청 없음'
+                  : '요청 처리 현황에서 확인해 주세요'
           }
           tone={fixCount > 0 ? 'warning' : 'default'}
           action={<Link to="/requests">요청 처리 현황</Link>}
@@ -114,7 +124,18 @@ export function DashboardPage() {
           }
           className={styles.conditions}
         >
-          <LoadState status={conditions.status} onRetry={conditions.reload} />
+          {USE_MOCK ? <LoadState status={conditions.status} onRetry={conditions.reload} /> : <LoadState status={policy.status} errorText={policy.error?.message} onRetry={policy.reload} />}
+          {policy.data && (
+            <>
+              {policy.data.exists ? <PolicyRulesView rules={policy.data} breeds={breeds.data ?? new Map()} /> : <p className={page.muted}>아직 운영자가 확인한 입장 정책이 없어요.</p>}
+              <div className={styles.condFoot}>
+                <span>{policy.data.exists ? `정책 버전 ${policy.data.version}` : '정책 없음'}</span>
+                <Link to="/conditions" className={styles.condLink}>
+                  입장 조건 현황 <Icon name="chevronRight" size={14} />
+                </Link>
+              </div>
+            </>
+          )}
           {c && (
             <>
               <dl className={styles.condList}>

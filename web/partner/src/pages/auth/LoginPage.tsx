@@ -1,3 +1,4 @@
+import { USE_MOCK } from '@/api/client';
 import { useState, type FormEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { login } from '@/api/account';
@@ -60,8 +61,9 @@ export function LoginPage() {
             <h2 id="login-title" className={styles.title}>업체 로그인</h2>
             <p className={styles.muted}>업체 관리자 계정으로 로그인하세요.</p>
           </div>
-          <Field label="아이디 (이메일)" htmlFor="login-email">
-            <TextInput id="login-email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          {/* 서버 로그인은 가입한 휴대폰 번호로 해요 (BE 공통 로그인 phoneNumber) */}
+          <Field label={USE_MOCK ? '아이디 (이메일)' : '휴대폰 번호'} htmlFor="login-email">
+            <TextInput id="login-email" type={USE_MOCK ? 'email' : 'tel'} inputMode={USE_MOCK ? undefined : 'tel'} placeholder={USE_MOCK ? undefined : '01012345678'} autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required />
           </Field>
           <Field label="비밀번호" htmlFor="login-pw">
             <TextInput id="login-pw" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
