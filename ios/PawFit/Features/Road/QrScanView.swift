@@ -1,5 +1,5 @@
 import SwiftUI
-import AVFoundation
+@preconcurrency import AVFoundation
 import PhotosUI
 import CoreImage
 
@@ -152,7 +152,7 @@ struct QrCameraView: UIViewRepresentable {
 
         init(onCode: @escaping (String) -> Void) { self.onCode = onCode }
 
-        func start(in view: PreviewView) {
+        @MainActor func start(in view: PreviewView) {
             guard let device = AVCaptureDevice.default(for: .video),
                   let input = try? AVCaptureDeviceInput(device: device),
                   session.canAddInput(input) else { return }

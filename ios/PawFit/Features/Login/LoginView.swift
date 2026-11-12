@@ -54,7 +54,7 @@ private struct LoginContent: View {
             }
             .navigationDestination(for: AuthRoute.self) { route in
                 switch route {
-                case .signUpTerms: SignUpPlaceholderView()
+                case .signUpTerms: SignUpFlow()
                 }
             }
         }
