@@ -1,0 +1,20 @@
+# Xcode — .xcodeproj는 project.yml로 만들어요(xcodegen generate)
+*.xcodeproj
+*.xcworkspace
+!*.xcworkspace/contents.xcworkspacedata
+xcuserdata/
+DerivedData/
+build/
+*.xcresult
+PawFit/Info.plist
+
+# 개인 설정 (서버 주소, 키 등)
+PawFit/Config/Local.xcconfig
+*.env
+
+# macOS
+.DS_Store
+
+# SwiftPM
+.swiftpm/
+.build/
