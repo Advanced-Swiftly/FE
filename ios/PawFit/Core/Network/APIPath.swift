@@ -5,7 +5,7 @@ import Foundation
 /// 서버 Swagger: {서버}/swagger-ui.html
 enum APIPath {
     // MARK: 공통 · 인증 (AuthController, CommonController)
-    static let terms = "/terms"
+    static let terms = "/terms"            // ?role=GUARDIAN 필수 (없으면 서버 500)
     static let regions = "/regions"
     static let breeds = "/breeds"
     static let phoneVerifications = "/auth/phone-verifications"            // { phoneNumber, purpose: SIGN_UP|LOGIN|CHANGE_PHONE }

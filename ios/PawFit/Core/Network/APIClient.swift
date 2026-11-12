@@ -80,7 +80,12 @@ actor APIClient {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("ko-KR", forHTTPHeaderField: "Accept-Language")
 
-        if let body = endpoint.body {
+        if !endpoint.files.isEmpty {
+            let boundary = "PawFit-\(UUID().uuidString)"
+            request.httpBody = Self.multipartBody(endpoint.files, boundary: boundary)
+            request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+            request.timeoutInterval = 120
+        } else if let body = endpoint.body {
             request.httpBody = try JSONCoding.encoder.encode(body)
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
@@ -90,6 +95,19 @@ actor APIClient {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         return request
+    }
+
+    static func multipartBody(_ files: [UploadFile], boundary: String) -> Data {
+        var body = Data()
+        for file in files {
+            body.append(Data("--\(boundary)\r\n".utf8))
+            body.append(Data("Content-Disposition: form-data; name=\"\(file.fieldName)\"; filename=\"\(file.fileName)\"\r\n".utf8))
+            body.append(Data("Content-Type: \(file.mimeType)\r\n\r\n".utf8))
+            body.append(file.data)
+            body.append(Data("\r\n".utf8))
+        }
+        body.append(Data("--\(boundary)--\r\n".utf8))
+        return body
     }
 
     static func decode<R: Decodable>(_ type: R.Type, data: Data, response: HTTPURLResponse) throws -> R {

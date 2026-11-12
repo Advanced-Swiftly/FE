@@ -52,6 +52,8 @@ xcodebuild test -project PawFit.xcodeproj -scheme PawFit \
 | 010-5555-5555 | 아무거나 | 업체관리자 계정 → "보호자 계정으로 로그인해 주세요" |
 | 010-9999-9999 | 아무거나 | 네트워크 오류 |
 
+목업에서는 반려견 몽이(말티즈 5kg) · 콩이(푸들 10kg), 성수동 매장 8곳, 댕댕로드 스탬프 3/10이 들어 있다. 회원가입 인증번호는 123456, QR 화면에는 [시연용 QR로 인증하기] 버튼이 보인다(한 번에 스탬프 1개).
+
 ## 폴더 구조
 
 ```
@@ -62,7 +64,10 @@ PawFit/
   Core/Network/   API 클라이언트(백엔드 규칙), 경로 모음, 오류 코드
   Core/Auth/      로그인 · 토큰 · 내 정보 모델과 서비스(실서버/목업)
   Core/Storage/   토큰 키체인 저장
-  Features/       화면별 폴더 (Start=S-000, Login=S-001, SignUp, Map …)
+  Core/Models/    서버 응답 모델(반려견 · 장소 · 예방접종 · 이벤트 · 챗봇 · 회원), 날짜 · 조사 도우미
+  Core/Services/  PawFitAPI(실서버 LivePawFitAPI / 목업 MockPawFitAPI)
+  Core/Location/  현재 위치 (거부 시 성수동)
+  Features/       화면별 폴더 (Start, Login, SignUp, Map, Dogs, Vaccination, Chat, My, Road)
   Resources/      Pretendard 글꼴, 로고, 앱 아이콘
 PawFitTests/      API · 로그인 · 규칙 테스트
 ```
@@ -90,12 +95,23 @@ PawFitTests/      API · 로그인 · 규칙 테스트
 
 ## 화면 진행 상황
 
-| 화면 ID | 화면 | 상태 |
-| --- | --- | --- |
-| UI-S-000 | 시작 화면 (S0) | 완료 |
-| UI-S-001 | 로그인 · 오류 상태 (S1) | 완료 · 백엔드 연결 (휴대폰 번호 로그인) |
-| UI-S-002~005 | 회원가입 3단계 · 가입 완료 | 다음 |
-| UI-M-001 | 메인 지도 | 자리만 (Google Maps SDK 연결 전) |
+| 캔버스 보드 | 화면 | 파일 | 서버 API |
+| --- | --- | --- | --- |
+| S0 · S1 | 시작 · 로그인(휴대폰 번호) | `Start/` `Login/` | `/auth/login` `/auth/refresh` `/users/me` |
+| SignTerms · SignAccount · SignPhone · SignDone | 회원가입 3단계 · 출입증 | `SignUp/SignUpFlow.swift` | `/terms?role=GUARDIAN` `/auth/phone-verifications` `/auth/signup/guardian` |
+| Map · MapList · MapDogMenu · Criteria · InfoGuide | 지도 · 목록 시트 · 반려견 기준 · 판정 기준 | `Map/` | `/places/map` `/places` |
+| DetailOk/Prep/No/Unknown · Together · GoSheet | 업체 상세 · 조건 표 · 길찾기 | `Map/PlaceDetailView.swift` | `/places/{id}` `/places/{id}/entry-judgments` |
+| DogBasic · DogPrep · DogPrepVax · DogDone | 반려견 등록 3단계 | `Dogs/DogRegistrationFlow.swift` | `/dogs` `/breeds` |
+| MyDogs · DogEdit · DogDelete | 내 반려견 · 수정 · 삭제 | `Dogs/MyDogsView.swift` | `/dogs/{id}` `/dogs/{id}/default` |
+| VaxEmpty · VaxUpload · VaxCheck · VaxStates · VaxEdit | 예방접종 증빙 (AI 확인) | `Vaccination/` | `/dogs/{id}/vaccination-documents` `/vaccination-records/{id}` |
+| ChatEmpty · Chat · ChatPublic | 챗봇 | `Chat/ChatView.swift` | `/chat/sessions` `/chat/sessions/{id}/messages` |
+| My · Account · Notify · Logout | 마이 · 계정 · 알림 · 로그아웃 | `My/MyView.swift` | `/users/me` `/users/me/notification-settings` |
+| Road · QrScan · Stamp · DrawReady · DrawDone | 댕댕로드 · QR · 스탬프 · 추첨 | `Road/` | `/events/current` `/visits/qr` `/events/{id}/draw-entries` |
+
+서버에 없어서 이 기기에만 저장하는 값: 배송지(추첨 응모 때 함께 보냄), 알림 '다녀온 매장 조건 변경' · '밤에도 받기', 반려견 성별 · 특이사항.
+서버에 아직 없어 '다음 업데이트' 안내만 띄우는 것: 휴대폰 번호 변경, 비밀번호 변경, 반려견 사진.
+
+지도는 지금 Apple 지도(MapKit). 백엔드가 Google 지도를 쓰기로 하면 `Map/PlaceMapLayer.swift` 한 파일만 바꾼다.
 
 ## 브랜치 · 커밋
 

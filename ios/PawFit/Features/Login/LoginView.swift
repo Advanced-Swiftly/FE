@@ -11,7 +11,7 @@ struct LoginView: View {
     @Environment(\.appEnvironment) private var env
 
     var body: some View {
-        LoginContent(viewModel: LoginViewModel(auth: env.auth), onSignedIn: session.signedIn(name:))
+        LoginContent(viewModel: LoginViewModel(auth: env.auth), onSignedIn: { session.signedIn(name: $0) })
     }
 }
 
@@ -54,7 +54,7 @@ private struct LoginContent: View {
             }
             .navigationDestination(for: AuthRoute.self) { route in
                 switch route {
-                case .signUpTerms: SignUpPlaceholderView()
+                case .signUpTerms: SignUpFlow()
                 }
             }
         }

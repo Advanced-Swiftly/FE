@@ -13,7 +13,7 @@ struct RootView: View {
             case .login:
                 LoginView()
             case .main:
-                MapPlaceholderView()
+                MainTabView()
             }
         }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: session.route)
