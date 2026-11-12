@@ -1,0 +1,138 @@
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.h {
+  font-size: var(--font-size-base);
+  font-weight: 700;
+}
+
+.changeRow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.changeLabel {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.compare {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.latest {
+  font-size: var(--font-size-sm);
+  color: #1e3a8a;
+}
+
+.before,
+.after {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+}
+
+.before {
+  background: var(--color-bg);
+}
+
+.before span,
+.before strong {
+  color: var(--color-text-muted);
+}
+
+.before strong {
+  font-weight: 600;
+  text-decoration: line-through;
+}
+
+.after {
+  background: #eff4ff;
+}
+
+.after span {
+  color: #1e3a8a;
+}
+
+.before span,
+.after span {
+  font-size: var(--font-size-sm);
+}
+
+.files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.file {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-md);
+}
+
+.memo {
+  gap: var(--space-2);
+  padding: 14px var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-subtle);
+  font-size: var(--font-size-md);
+}
+
+.memoWarn {
+  background: var(--color-warning-bg);
+  border: 1px solid var(--color-warning-border);
+}
+
+.muted {
+  font-size: var(--font-size-md);
+  color: var(--color-text-muted);
+}
+
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.grow {
+  flex: 1;
+}
+
+.cancel {
+  min-height: 44px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--color-danger);
+  cursor: pointer;
+}
+
+.confirm {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--color-danger);
+}

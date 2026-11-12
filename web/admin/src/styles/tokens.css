@@ -1,0 +1,84 @@
+/* PawFit 디자인 토큰 — Figma Components와 같은 값을 써요. 색은 여기서만 정하고 화면에서는 변수만 사용해요. */
+:root {
+  /* 브랜드 */
+  --color-primary: #2348c9;
+  --color-primary-hover: #1a379e;
+  --color-primary-soft: #eef2ff;
+
+  /* 글자 */
+  --color-text: #171a1f;
+  --color-text-secondary: #3a404a;
+  --color-text-muted: #626a75;
+  --color-text-inverse: #ffffff;
+
+  /* 배경 · 테두리 */
+  --color-bg: #f4f5f7;
+  --color-surface: #ffffff;
+  --color-surface-subtle: #f9fafb;
+  --color-border: #e3e6ea;
+  --color-border-strong: #c9ced6;
+  --color-divider: #eef0f3;
+
+  /* 운영자 사이드바 */
+  --color-admin-nav: #15181d;
+  --color-admin-nav-active: #2a2f38;
+  --color-admin-nav-text: #c9ced6;
+  --color-admin-badge: #f5c451;
+
+  /* 입장 판정 4단계 (색 + 글자 + 아이콘을 함께 써야 해요 · QUR-001) */
+  --judge-ok-fg: #166534;
+  --judge-ok-bg: #dcfce7;
+  --judge-prep-fg: #854d0e;
+  --judge-prep-bg: #fef3c7;
+  --judge-no-fg: #991b1b;
+  --judge-no-bg: #fee2e2;
+  --judge-unknown-fg: #374151;
+  --judge-unknown-bg: #e5e7eb;
+
+  /* 요청 처리 상태 */
+  --status-received-fg: #374151;
+  --status-received-bg: #e5e7eb;
+  --status-review-fg: #1e3a8a;
+  --status-review-bg: #dbeafe;
+  --status-approved-fg: #166534;
+  --status-approved-bg: #dcfce7;
+  --status-rejected-fg: #991b1b;
+  --status-rejected-bg: #fee2e2;
+  --status-revise-fg: #854d0e;
+  --status-revise-bg: #fef3c7;
+
+  /* 알림 박스 */
+  --color-warning-bg: #fffbeb;
+  --color-warning-border: #f5d98b;
+  --color-danger: #991b1b;
+  --color-success: #166534;
+
+  /* 글꼴 */
+  --font-sans: 'IBM Plex Sans KR', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-size-xs: 12px;
+  --font-size-sm: 13px;
+  --font-size-md: 14px;
+  --font-size-base: 15px;
+  --font-size-lg: 18px;
+  --font-size-xl: 22px;
+  --font-size-2xl: 28px;
+
+  /* 모서리 · 간격 */
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-pill: 999px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  /* 크기 */
+  --sidebar-width: 240px;
+  --control-height: 44px;
+}
