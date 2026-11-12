@@ -1,0 +1,7 @@
+// 이 파일을 Local.xcconfig로 복사해서 쓴다. (Local.xcconfig는 .gitignore에 있음)
+
+// 서버 없이 화면만 볼 때
+// PAWFIT_USE_MOCK_API = YES
+
+// 내 맥에서 백엔드를 띄웠을 때 (시뮬레이터)
+// PAWFIT_API_BASE_URL = http:/$()/localhost:8080/api/v1
