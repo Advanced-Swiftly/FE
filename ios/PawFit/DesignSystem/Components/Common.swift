@@ -348,6 +348,8 @@ struct CardBox<Content: View>: View {
 struct SheetGrabber: View {
     var body: some View {
         Capsule().fill(Color(hex: 0xD1D1D6)).frame(width: 36, height: 5).padding(.top, 8)
+            .frame(maxWidth: .infinity)   // 시트 내용이 왼쪽 정렬이어도 손잡이는 항상 가운데
+            .accessibilityHidden(true)
     }
 }
 
