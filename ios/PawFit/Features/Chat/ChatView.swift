@@ -16,7 +16,7 @@ struct ChatView: View {
     @State private var message: String?
     @State private var editDogId: Int64?
     /// 처음 화면으로 돌아가면 1 늘린다 → 그 전에 보낸 질문의 답이 늦게 와도 새 화면에 붙지 않게
-    @State private var conversation = 0
+    @State private var chatRound = 0
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -199,7 +199,7 @@ struct ChatView: View {
     private func startOver() {
         focused = false
         withAnimation(.easeOut(duration: 0.2)) {
-            conversation += 1
+            chatRound += 1
             messages = []
             sessionId = nil
             input = ""
@@ -213,13 +213,13 @@ struct ChatView: View {
         input = ""
         messages.append(ChatMessage(role: .user, text: text))
         sending = true
-        let current = conversation
+        let current = chatRound
         Task {
-            defer { if current == conversation { sending = false } }
+            defer { if current == chatRound { sending = false } }
             do {
                 if sessionId == nil {
                     let created = try await store.api.createChatSession().sessionId
-                    guard current == conversation else { return }
+                    guard current == chatRound else { return }
                     sessionId = created
                 }
                 guard let sessionId else { return }
@@ -230,12 +230,12 @@ struct ChatView: View {
                     content: text, selectedDogIds: dogs.map(\.dogId),
                     latitude: here.latitude, longitude: here.longitude))
                 let cards = await loadCards(sent.assistantMessage.places ?? [], dogs: dogs)
-                guard current == conversation else { return }   // 그사이 처음 화면으로 돌아갔으면 버린다
+                guard current == chatRound else { return }   // 그사이 처음 화면으로 돌아갔으면 버린다
                 var reply = ChatMessage(role: .assistant, text: sent.assistantMessage.content, cards: cards)
                 reply.followUps = followUps(question: text, cards: cards)
                 messages.append(reply)
             } catch {
-                guard current == conversation else { return }
+                guard current == chatRound else { return }
                 messages.append(ChatMessage(role: .assistant, text: APIError.message(error), failed: true))
             }
         }
