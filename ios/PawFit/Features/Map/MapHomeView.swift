@@ -228,7 +228,7 @@ struct MapHomeView: View {
             .scrollDisabled(!sheetExpanded)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(PawFitColor.background, in: UnevenRoundedRectangle(topLeadingRadius: 28, topTrailingRadius: 28))
+        .background { UnevenRoundedRectangle(topLeadingRadius: 28, topTrailingRadius: 28).fill(PawFitColor.background) }
         .shadow(color: PawFitColor.textPrimary.opacity(0.08), radius: 16, y: -8)
         .offset(y: sheetTop(in: geo))
         .gesture(DragGesture(minimumDistance: 12).onEnded { v in

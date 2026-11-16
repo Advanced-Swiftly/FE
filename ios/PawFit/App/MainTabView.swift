@@ -24,9 +24,9 @@ struct MainTabView: View {
                         NavigationStack { MyView(selectTab: { tab = $0 }) }
                             .opacity(tab == .my ? 1 : 0).allowsHitTesting(tab == .my)
                     }
-                    .safeAreaInset(edge: .bottom, spacing: 0) {
-                        if store.tabBarHiders == 0 { Color.clear.frame(height: 49) }
-                    }
+                    // 탭바 자리만큼 화면 높이를 줄인다. safeAreaInset은 NavigationStack 안 화면까지
+                    // 전달되지 않아서, 화면 아래 입력창 · 버튼(safeAreaInset)이 탭바에 가려졌다.
+                    .padding(.bottom, store.tabBarHiders == 0 ? PawFitTabBar.height : 0)
                     if store.tabBarHiders == 0 {
                         PawFitTabBar(selection: $tab)
                             .ignoresSafeArea(.keyboard, edges: .bottom)
@@ -61,6 +61,7 @@ struct MainTabView: View {
 
 /// 캔버스 탭바: 높이 83(홈 표시줄 포함), 아이콘만, 선택 = 채운 브랜드색
 struct PawFitTabBar: View {
+    static let height: CGFloat = 49
     @Binding var selection: MainTabView.Tab
 
     var body: some View {
@@ -71,7 +72,7 @@ struct PawFitTabBar: View {
         }
         .padding(.top, 10)
         .frame(maxWidth: .infinity, alignment: .top)
-        .frame(height: 49, alignment: .top)
+        .frame(height: Self.height, alignment: .top)
         .background(PawFitColor.background.ignoresSafeArea(edges: .bottom))
         .overlay(alignment: .top) { Rectangle().fill(PawFitColor.separator.opacity(0.6)).frame(height: 0.5) }
     }

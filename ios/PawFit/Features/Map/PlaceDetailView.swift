@@ -100,7 +100,8 @@ struct PlaceDetailView: View {
                     .padding(.horizontal, 20)
                     .padding(.top, 26)
                     .padding(.bottom, 40)
-                    .background(PawFitColor.background, in: UnevenRoundedRectangle(topLeadingRadius: 28, topTrailingRadius: 28))
+                    // background(_:in:)는 안쪽 뷰의 container shape까지 바꿔서, 모양은 그리기만 한다
+                    .background { UnevenRoundedRectangle(topLeadingRadius: 28, topTrailingRadius: 28).fill(PawFitColor.background) }
                     .padding(.top, 196)
                 }
             }
@@ -155,7 +156,8 @@ struct PlaceDetailView: View {
         }
         .padding(.vertical, 18).padding(.horizontal, 20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(v.background)
+        // 모양을 직접 정한다: 그냥 .background(색)은 카드의 둥근 위 모서리(container shape)를 물려받는다
+        .background(v.background, in: Rectangle())
         .padding(.horizontal, -20)
         .padding(.top, 20)
         .accessibilityElement(children: .combine)
