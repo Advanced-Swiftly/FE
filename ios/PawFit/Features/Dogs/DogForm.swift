@@ -137,9 +137,9 @@ struct BreedPickerSheet: View {
             .searchable(text: $query, prompt: "품종 이름")
             .navigationTitle("품종 선택")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("닫기") { dismiss() } } }
         }
         .tint(PawFitColor.brand)
+        .presentationDragIndicator(.visible)   // 닫기 버튼 대신 아래로 내려 닫는다
     }
 }
 

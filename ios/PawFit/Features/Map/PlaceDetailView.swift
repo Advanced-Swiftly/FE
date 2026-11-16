@@ -293,11 +293,9 @@ struct ConditionResultView: View {
             }
             .font(.pawfit(15, .semibold)).foregroundStyle(Verdict.noEntry.text)
         case .unknown:
-            HStack(spacing: 5) {
-                Text("확인 필요").foregroundStyle(PawFitColor.textSecondary)
-                Image(systemName: "questionmark").font(.system(size: 12, weight: .heavy)).foregroundStyle(PawFitColor.textTertiary)
-            }
-            .font(.pawfit(15, .semibold))
+            // 세부 조건이 없는 업체: 반려견 칸은 '-'만 (업체 기준 칸의 '알 수 없음'이 이유를 말해 준다)
+            Text("-").font(.pawfit(15, .semibold)).foregroundStyle(PawFitColor.textTertiary)
+                .accessibilityLabel("확인 필요")
         }
     }
 }
@@ -321,11 +319,6 @@ struct GoCheckSheet: View {
                         .font(.pawfit(14)).foregroundStyle(PawFitColor.textSecondary)
                 }
                 Spacer()
-                Button { dismiss() } label: {
-                    Image(systemName: "xmark").font(.system(size: 18)).foregroundStyle(PawFitColor.iconGray).frame(width: 44, height: 44)
-                }
-                .accessibilityLabel("닫기")
-                .padding(.trailing, -12)
             }
             .padding(.top, 24)
 
@@ -374,5 +367,6 @@ struct GoCheckSheet: View {
         .screenBackground()
         .presentationDetents([.medium, .large])
         .presentationCornerRadius(28)
+        .presentationDragIndicator(.visible)   // 닫기 버튼 대신 아래로 내려 닫는다
     }
 }
