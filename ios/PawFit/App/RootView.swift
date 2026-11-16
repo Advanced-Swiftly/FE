@@ -17,6 +17,9 @@ struct RootView: View {
             }
         }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: session.route)
+        // 입력창 밖을 누르면 키보드 내리기 (앱 전체)
+        .onAppear { KeyboardDismissTap.shared.install() }
+        .onChange(of: session.route) { KeyboardDismissTap.shared.install() }
     }
 }
 

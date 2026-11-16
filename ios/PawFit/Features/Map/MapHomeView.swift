@@ -16,7 +16,7 @@ struct MapHomeView: View {
     @State private var places: [PlaceCard] = []
     @State private var category: String?
     @State private var listFilter: Verdict = .entryOK
-    @State private var sheetExpanded = false
+    @State private var sheetLevel: SheetLevel = .middle
     @State private var showDogMenu = false
     @State private var showCriteria = false
     @State private var searchText = ""
@@ -163,8 +163,24 @@ struct MapHomeView: View {
 
     // MARK: 아래 시트
 
+    /// 아래 시트 높이 3단계: 접힘(제목 · 입장 가능/준비 필요 토글까지) · 중간 · 펼침
+    enum SheetLevel: Int, CaseIterable {
+        case collapsed, middle, expanded
+        func moved(by steps: Int) -> SheetLevel {
+            SheetLevel(rawValue: min(max(rawValue + steps, 0), SheetLevel.allCases.count - 1)) ?? self
+        }
+    }
+
+    /// 접혔을 때 보이는 높이: 손잡이(13) + 제목 줄(58) + 토글(46) + 여백. 검색 결과에는 토글이 없다.
+    private var collapsedVisibleHeight: CGFloat { searchResults == nil ? 132 : 86 }
+
+    /// 시트 위쪽 위치. 지도는 탭바만큼 줄어들지 않으므로(MainTabView) 탭바 높이를 직접 뺀다.
     private func sheetTop(in geo: GeometryProxy) -> CGFloat {
-        sheetExpanded ? 112 : geo.size.height * 0.56
+        switch sheetLevel {
+        case .expanded: 112
+        case .middle: geo.size.height * 0.56
+        case .collapsed: max(geo.size.height * 0.56, geo.size.height - PawFitTabBar.height - collapsedVisibleHeight)
+        }
     }
 
     private var listed: [PlaceCard] {
@@ -223,20 +239,28 @@ struct MapHomeView: View {
                     }
                 }
                 .padding(.horizontal, 20)
-                .padding(.bottom, 24)
+                .padding(.bottom, 24 + PawFitTabBar.height + geo.safeAreaInsets.bottom)   // 탭바 · 홈 표시줄 아래로 숨지 않게
             }
-            .scrollDisabled(!sheetExpanded)
+            .scrollDisabled(sheetLevel != .expanded)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // 시트 높이 = 위치부터 화면 맨 아래까지 (offset만 주면 펼쳤을 때 목록 끝이 화면 밖으로 밀린다)
+        .frame(maxWidth: .infinity, alignment: .top)
+        .frame(height: max(0, geo.size.height + geo.safeAreaInsets.bottom - sheetTop(in: geo)), alignment: .top)
         .background { UnevenRoundedRectangle(topLeadingRadius: 28, topTrailingRadius: 28).fill(PawFitColor.background) }
         .shadow(color: PawFitColor.textPrimary.opacity(0.08), radius: 16, y: -8)
         .offset(y: sheetTop(in: geo))
         .gesture(DragGesture(minimumDistance: 12).onEnded { v in
-            withAnimation(.snappy(duration: 0.3)) {
-                if v.translation.height < -40 { sheetExpanded = true } else if v.translation.height > 40 { sheetExpanded = false }
-            }
+            // 살짝 밀면 한 칸, 세게 밀면 두 칸 (위로 = 펼치기, 아래로 = 접기)
+            let dy = v.predictedEndTranslation.height
+            guard abs(v.translation.height) > 40 || abs(dy) > 120 else { return }
+            let steps = abs(dy) > 420 ? 2 : 1
+            withAnimation(.snappy(duration: 0.3)) { sheetLevel = sheetLevel.moved(by: dy < 0 ? steps : -steps) }
         })
-        .onTapGesture { if !sheetExpanded { withAnimation(.snappy(duration: 0.3)) { sheetExpanded = true } } }
+        .onTapGesture {
+            if sheetLevel != .expanded { withAnimation(.snappy(duration: 0.3)) { sheetLevel = sheetLevel.moved(by: 1) } }
+        }
+        .accessibilityAction(named: "목록 펼치기") { withAnimation { sheetLevel = sheetLevel.moved(by: 1) } }
+        .accessibilityAction(named: "목록 접기") { withAnimation { sheetLevel = sheetLevel.moved(by: -1) } }
         .ignoresSafeArea(edges: .bottom)
     }
 
@@ -280,7 +304,7 @@ struct MapHomeView: View {
         guard !k.isEmpty else { searchResults = nil; return }
         do {
             searchResults = try await store.api.searchPlaces(keyword: k, dogIds: store.basisDogIds)
-            withAnimation(.snappy) { sheetExpanded = true }
+            withAnimation(.snappy) { sheetLevel = .expanded }
         } catch {
             errorMessage = APIError.message(error)
         }
