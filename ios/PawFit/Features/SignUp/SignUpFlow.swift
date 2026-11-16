@@ -345,7 +345,7 @@ struct SignUpFlow: View {
     private func sendCode() async {
         busy = true; defer { busy = false }
         do {
-            let sent = try await env.api.sendPhoneCode(phone)
+            let sent = try await env.api.sendPhoneCode(phone, purpose: .signUp)
             verificationId = sent.verificationId
             expiresAt = Date.now.addingTimeInterval(TimeInterval(sent.expiresInSeconds))
             code = ""

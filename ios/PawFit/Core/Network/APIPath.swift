@@ -16,8 +16,9 @@ enum APIPath {
     static let logout = "/auth/logout"
 
     // MARK: 내 정보 (MemberController)
-    static let me = "/users/me"                                            // GET 조회 · PATCH 이름/번호 변경 · DELETE 탈퇴
+    static let me = "/users/me"                                            // GET 조회 · PATCH 이름/번호 변경({ phoneVerificationToken }) · DELETE 탈퇴
     static let meNotificationSettings = "/users/me/notification-settings"  // GET · PATCH
+    static let mePassword = "/users/me/password"                           // PATCH { currentPassword, newPassword } → 204 (BE PR #56)
 
     // MARK: 반려견 (DogController)
     static let dogs = "/dogs"
