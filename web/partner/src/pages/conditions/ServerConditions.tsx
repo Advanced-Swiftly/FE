@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { createPolicyRequest, getBreedNames, getStorePolicy, resubmitPolicyRequest, sameRules, type RuleSet, type StorePolicy } from '@/api/policy';
+import { previewPolicy, createPolicyRequest, getBreedNames, getStorePolicy, resubmitPolicyRequest, sameRules, type RuleSet, type StorePolicy } from '@/api/policy';
+import { uploadFile } from '@/api/files';
 import { getRequestDetail } from '@/api/requests';
 import { Button, ButtonLink } from '@/components/common/Button';
 import { Card } from '@/components/common/Card';
@@ -16,8 +17,8 @@ import { useFetch } from '@/hooks/useFetch';
 import page from '@/styles/page.module.css';
 import type { ConditionRequestDetail } from '@/types';
 
-const URL_RE = /^https?:\/\/\S+$/;
-const SCOPE_NOTE = '서버 입장 정책은 견종 · 준비물 · 예방접종 조건만 다뤄요. 동반 가능 여부 · 체중 · 크기 · 이용 구역은 아직 서버에 없어요.';
+const URL_RE = /^(https?:\/\/\S+|\/api\/v1\/files\/[0-9a-f-]{36})$/i;
+const SCOPE_NOTE = '실내·야외 조건과 적용 시작일을 확인해 주세요. 운영자 승인 전까지 기존 조건이 유지돼요.';
 
 /** 서버 모드 UI-W-009 입장 조건 현황 — GET /business/stores/{storeId}/policy */
 export function ServerConditionsPage() {
@@ -89,20 +90,25 @@ function EditForm({ policy, breeds, request, onReload }: { policy: StorePolicy; 
   const { store } = useCurrentStore();
   const resubmit = request !== null;
   // 지금 정책 전체에서 시작해요 — 고치지 않은 조건도 그대로 함께 보내져서 지워지지 않아요
-  const [draft, setDraft] = useState<RuleSet>({ breedRules: [...policy.breedRules], equipmentRules: [...policy.equipmentRules], vaccineRules: [...policy.vaccineRules] });
+  const [draft, setDraft] = useState<RuleSet>({ conditions: request?.requestedPolicy?.conditions ?? policy.conditions, breedRules: [...(request?.requestedPolicy?.breedRules ?? policy.breedRules)], equipmentRules: [...(request?.requestedPolicy?.equipmentRules ?? policy.equipmentRules)], vaccineRules: [...(request?.requestedPolicy?.vaccineRules ?? policy.vaccineRules)] });
   // 보완 제출: BE 상세에 이전 요청 정책이 없어서, 정책을 다시 보낼지는 직접 고르게 해요 (보내지 않으면 이전 요청 정책 그대로)
   const [sendPolicy, setSendPolicy] = useState(!resubmit);
-  const [sourceText, setSourceText] = useState('');
+  const [sourceText, setSourceText] = useState(request?.sourceText ?? '');
   const [urlText, setUrlText] = useState('');
+  const [uploaded, setUploaded] = useState<{name:string;url:string}[]>([]);
+  const [uploading,setUploading] = useState(false);
+  const [uploadError,setUploadError] = useState<string|null>(null);
+  const preview=useFetch(`policy-preview:${store.id}:${JSON.stringify(draft)}`,()=>previewPolicy(store.id,draft));
+  const verdictLabel:Record<string,string>={ENTRY_OK:'입장 가능',PREPARE:'준비 필요',CHECK_REQUIRED:'정보 확인 필요',ENTRY_DENIED:'입장 불가'};
   const create = useAction(createPolicyRequest);
   const re = useAction(resubmitPolicyRequest);
   const action = resubmit ? re : create;
 
-  const urls = parseUrls(urlText);
+  const urls = [...parseUrls(urlText), ...uploaded.map(f=>f.url)];
   const badUrl = urls.find((u) => !URL_RE.test(u) || u.length > 500);
   const changed = !sameRules(draft, policy);
   const textOk = sourceText.trim().length <= 2000 && (resubmit || sourceText.trim().length > 0);
-  const canSubmit = !action.pending && textOk && !badUrl && urls.length <= 10 && (resubmit ? sendPolicy || sourceText.trim() !== '' || urls.length > 0 : changed);
+  const canSubmit = !uploading && !action.pending && textOk && !badUrl && urls.length <= 10 && (resubmit ? sendPolicy || sourceText.trim() !== '' || urls.length > 0 : changed);
   const conflict = action.errorCode === 'POLICY_VERSION_CONFLICT';
 
   const onSubmit = async (e: FormEvent) => {
@@ -132,14 +138,31 @@ function EditForm({ policy, breeds, request, onReload }: { policy: StorePolicy; 
           </>
         )}
       </Card>
+      {preview.data && <Card title="변경 후 입장 예시"><p>{preview.data.example}</p>
+        <p>{verdictLabel[preview.data.before] ?? preview.data.before} → {verdictLabel[preview.data.after] ?? preview.data.after}</p>
+        <p>운영자 승인 후 적용 시작일부터 반영돼요.</p>
+      </Card>}
       <Card title="근거">
+        <label>근거 파일 추가
+          <input type="file" accept="image/png,image/jpeg,image/webp,application/pdf" multiple disabled={uploading} onChange={async e=>{
+            const files=Array.from(e.target.files ?? []);e.target.value='';
+            if(files.length+urls.length>10){setUploadError('근거 자료는 10개까지 첨부할 수 있어요.');return;}
+            setUploading(true);setUploadError(null);
+            try {const next=await Promise.all(files.map(async file=>({name:file.name,url:await uploadFile(file)})));setUploaded(old=>[...old,...next]);}
+            catch {setUploadError('파일을 올리지 못했어요. 다시 시도해 주세요.');}
+            finally {setUploading(false);}
+          }}/>
+        </label>
+        {uploading && <p>파일을 올리고 있어요.</p>}
+        {uploadError && <Notice tone="danger">{uploadError}</Notice>}
+        {uploaded.map(file=><p key={file.url}>{file.name}</p>)}
         <Field label={resubmit ? '정책 원문 (바꿀 때만)' : '정책 원문'} htmlFor="sv-source" hint={`매장 안내문 · 공지 등 원문을 그대로 적어 주세요. ${sourceText.trim().length}/2000`}>
           <TextArea id="sv-source" rows={4} maxLength={2000} value={sourceText} onChange={(e) => setSourceText(e.target.value)} />
         </Field>
         <Field
           label="근거 주소 (선택)"
           htmlFor="sv-urls"
-          hint={`공지 · 사진이 있는 http(s) 주소를 한 줄에 하나씩, 10개까지 적어 주세요 (${urls.length}/10). 서버에 파일 업로드 기능이 아직 없어요.${resubmit ? ' 이미 보낸 주소에 더해져요.' : ''}`}
+          hint={`공지 · 사진이 있는 http(s) 주소를 한 줄에 하나씩, 10개까지 적어 주세요 (${urls.length}/10). 사진·PDF 파일도 첨부할 수 있어요.${resubmit ? ' 이미 보낸 주소에 더해져요.' : ''}`}
           message={badUrl ? { tone: 'error', text: `주소 형식을 확인해 주세요: ${badUrl}` } : urls.length > 10 ? { tone: 'error', text: '근거 주소는 10개까지예요' } : null}
         >
           <TextArea id="sv-urls" rows={3} value={urlText} onChange={(e) => setUrlText(e.target.value)} />

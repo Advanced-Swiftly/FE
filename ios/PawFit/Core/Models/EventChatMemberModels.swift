@@ -89,7 +89,17 @@ struct ChatAssistantMessage: Decodable, Sendable {
     let messageId: Int64
     let content: String
     let places: [ChatPlaceRef]?
+    var profileAction: ChatProfileAction? = nil
 }
+struct ChatProfileAction: Decodable, Sendable {
+    let actionId: String
+    let dogId: Int64
+    let dogName: String
+    let equipmentCode: String
+    let confirmLabel: String
+}
+struct ChatProfileApplied: Decodable, Sendable { let applied: Bool; let dogId: Int64 }
+
 
 struct ChatSendRequest: Encodable, Sendable {
     let content: String

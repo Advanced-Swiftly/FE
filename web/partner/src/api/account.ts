@@ -32,6 +32,7 @@ interface LoginResponseDto {
 }
 /** 내 프로필 조회 응답 (GET /users/me) — placeCounts 는 이전 명세 값이라 올 때만 써요 */
 interface MeDto {
+  loginId?: string | null;
   userId?: string | number;
   role?: string;
   name: string | null;
@@ -98,13 +99,13 @@ export async function login(loginId: string, password: string, keep = true): Pro
     return saveAuth(await mockResponse(res, 400), keep);
   }
   // 공통 로그인 — POST /auth/login { phoneNumber, password } → { user: { userId, role, name }, accessToken, refreshToken }
-  const { data } = await apiClient.post<LoginResponseDto>('/auth/login', { phoneNumber: digitsOnly(loginId), password });
+  const { data } = await apiClient.post<LoginResponseDto>('/auth/login', { ...(loginId.includes('@') ? {loginId:loginId.trim()} : {phoneNumber:digitsOnly(loginId)}), password });
   if (data.user?.role !== 'BUSINESS') {
     // 업체 관리자 계정이 아니면 받은 토큰을 바로 무효화하고 로그인하지 않아요
     await apiClient.post('/auth/logout', { refreshToken: data.refreshToken }, { headers: { Authorization: `Bearer ${data.accessToken}` } }).catch(() => undefined);
     throw mockError('ROLE_NOT_ALLOWED');
   }
-  setSession({ accessToken: data.accessToken, refreshToken: data.refreshToken, role: 'BUSINESS', loginId: data.user.name || digitsOnly(loginId) }, keep);
+  setSession({ accessToken: data.accessToken, refreshToken: data.refreshToken, role: 'BUSINESS', loginId: loginId.trim() }, keep);
   try {
     return await refreshPartnerState();
   } catch (e) {
@@ -229,6 +230,7 @@ export async function createAccount(form: SignupAccountForm): Promise<Session> {
   const body = {
     phoneVerificationToken: form.verificationToken,
     name: form.name,
+    ...(form.loginId.trim() ? {loginId:form.loginId.trim()} : {}),
     password: form.password,
     termAgreements: form.agreements.map((a) => ({ termId: a.termId ?? a.code, agreed: a.agreed })),
   };
@@ -490,7 +492,7 @@ export async function getAccount(): Promise<Account> {
   const counts = data.placeCounts;
   return {
     name: data.name ?? '',
-    loginId,
+    loginId: data.loginId ?? loginId,
     phone: data.phoneNumber ?? data.phone ?? '',
     // 연결된 업체 수는 이 응답의 예시에 없어요. 오면 쓰고, 없으면 null (0 으로 채우지 않아요)
     stores: counts ? { total: counts.approved + counts.pending, approved: counts.approved, pending: counts.pending } : null,
@@ -525,9 +527,8 @@ export async function changePassword(currentPassword: string, newPassword: strin
     await mockResponse(null);
     return;
   }
-  // 실제 BE 에 비밀번호 변경 API 가 없어요 (백엔드 확인 사항) — 없는 경로로 보내지 않아요
-  void newPassword;
-  throw mockError('FIELD_NOT_SUPPORTED', { field: 'password' });
+  await apiClient.patch('/users/me/password',{currentPassword,newPassword});
+  clearSession();
 }
 
 /** 탈퇴 — 성공하면 로그인도 지워요 */

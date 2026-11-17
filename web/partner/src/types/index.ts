@@ -182,6 +182,8 @@ export interface RequestHistory {
 
 /** F-WREQ-04 조건 변경 요청 상세 (요청 상세 팝업) */
 export interface ConditionRequestDetail {
+  sourceText?: string | null;
+  requestedPolicy?: import('@/api/policy').RuleSet;
   id: string;
   storeId: string;
   status: RequestStatus;

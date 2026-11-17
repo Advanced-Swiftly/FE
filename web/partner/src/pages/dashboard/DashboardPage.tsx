@@ -223,7 +223,7 @@ export function DashboardPage() {
         </div>
       </div>
 
-      <p className={page.muted}>화면의 수치와 업체명은 시안용 예시입니다.</p>
+      <p className={page.muted}>PawFit QR 인증 데이터를 기준으로 집계합니다.</p>
       <QrModal open={qrOpen} onClose={() => setQrOpen(false)} store={store} />
     </div>
   );

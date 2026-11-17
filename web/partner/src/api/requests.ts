@@ -83,13 +83,15 @@ async function getSplitRequestPage(storeId: string, type: RequestTypeFilter, sta
     // 목록 응답에 접수 시각이 없으면 빈 값 (화면은 '–')
     return { id, storeId, kind, appKind, status: st, group: IN_PROGRESS.includes(st) ? 'IN_PROGRESS' : 'DONE', summaryText, submittedAt: d.submittedAt ?? d.createdAt ?? '' };
   };
-  const items = [
+  const all = [
     ...cond.map((d) => row(d, 'CONDITION')),
     ...events.map((d) => row(d, 'EVENT_AD', 'EVENT')),
     ...ads.map((d) => row(d, 'EVENT_AD', 'AD')),
-  ].filter((x): x is PartnerRequest => x !== null && (status === 'ALL' || x.group === status));
+  ].filter((x): x is PartnerRequest => x !== null);
+  const items = all.filter(x=>status==='ALL'||x.group===status);
+  const summary={inProgress:all.filter(x=>x.group==='IN_PROGRESS').length,needsAction:all.filter(x=>x.status==='NEEDS_INFO').length,done:all.filter(x=>x.group==='DONE').length,avgProcessingDays:null};
   // 대시보드처럼 개수를 정해 부르면 그만큼만 (세 목록을 합친 정렬 기준이 없어 받은 순서 그대로)
-  return { summary: null, items: limit ? items.slice(0, limit) : items, nextCursor: null };
+  return { summary, items: limit ? items.slice(0, limit) : items, nextCursor: null };
 }
 
 /** F-WREQ-01 한 페이지. 대시보드 최근 요청은 limit=3 (명세) */
@@ -139,6 +141,9 @@ export interface ConditionRequestDetailDto {
   reason?: string | null;
   /** 백엔드 API 문서의 보완 · 반려 사유 */
   reviewComment?: string | null;
+  sourceText?: string | null;
+  evidenceUrls?: string[];
+  requestedPolicy?: import('./policy').RuleSet;
   history?: RequestHistory[] | null;
   canCancel?: boolean;
   canResubmit?: boolean;
@@ -166,7 +171,8 @@ export function toRequestDetail(d: ConditionRequestDetailDto): ConditionRequestD
     baseChanged: d.baseChanged === true,
     // 상세 응답 예시는 { requestId, status, reviewComment } 뿐이라 없는 목록은 빈 값, 가능 여부는 열지 않는 쪽으로 받아요
     changes: (d.changes ?? []).map((c) => ({ ...c, field: c.field as ConditionField })),
-    evidences: (d.evidences ?? []).map(toAttachment),
+    evidences: (d.evidences ?? d.evidenceUrls?.map(url => ({kind: 'FILE' as const, url} as const)) ?? []).map(toAttachment),
+    sourceText: d.sourceText, requestedPolicy: d.requestedPolicy,
     reason: d.reason ?? d.reviewComment ?? null,
     history: d.history ?? [],
     // 가능 여부가 응답에 없으면 BE 규칙대로 정해요 (ConditionRequest.canCancel: 접수 · 보완 요청 / canResubmit: 보완 요청)

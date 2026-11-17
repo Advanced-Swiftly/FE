@@ -10,6 +10,7 @@ struct PlaceCard: Decodable, Identifiable, Hashable, Sendable {
     let latitude: Double
     let longitude: Double
     let verdict: Verdict
+    var category: String? = nil
 
     var id: String { placeId }
     var coordinate: CLLocationCoordinate2D { .init(latitude: latitude, longitude: longitude) }
@@ -37,6 +38,14 @@ struct PlaceDetail: Decodable, Identifiable, Sendable {
     let policySource: String?
     let confirmedOn: String?        // "2026-09-25"
     let googleMapsUrl: String?
+    var category: String? = nil
+    var phoneNumber: String? = nil
+    var imageUrls: [String]? = nil
+    var businessHours: PlaceHours? = nil
+    var maxWeightKg: Double? = nil
+    var requiredEquipmentCodes: [String]? = nil
+    var conditions: PlaceConditions? = nil
+    var entryArea: String? = nil
 
     var id: String { placeId }
     var coordinate: CLLocationCoordinate2D { .init(latitude: latitude, longitude: longitude) }
@@ -150,7 +159,7 @@ enum ConditionTable {
         ]
 
         // 체중
-        let weightRule = unrestricted.contains("WEIGHT") ? "제한 없음" : "체중 제한 있음"
+        let weightRule = detail.maxWeightKg.map { "\(DogFormat.weight($0)) 이하" } ?? (unrestricted.contains("WEIGHT") ? "제한 없음" : "체중 제한 있음")
         rows.append(ConditionRow(label: "체중", placeRule: weightRule, results: perDog(dogs, count) { dog in
             let r = judgments[dog?.dogId ?? -1] ?? []
             let w = dog?.weightKg.map(DogFormat.weight)
@@ -273,5 +282,42 @@ enum Josa {
     static func and(_ names: [String]) -> String {
         guard names.count > 1 else { return names.first ?? "" }
         return names.dropLast().map { with($0) }.joined(separator: " ") + " " + names.last!
+    }
+}
+
+struct PlaceConditions: Decodable, Sendable {
+    struct Area: Decodable, Sendable { let allowed: Bool?; let maxWeightKg: Double?; let equipmentCodes: [String]? }
+    let petsAllowed: Bool?
+    let indoor: Area?
+    let outdoor: Area?
+    let effectiveFrom: String?
+    let notice: String?
+}
+enum PlaceHours: Decodable, Sendable {
+    struct Day: Decodable, Sendable {
+        let dayOfWeek: String
+        let openTime: String?
+        let closeTime: String?
+        let closed: Bool
+    }
+    case text(String), weekly([Day])
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if let text = try? c.decode(String.self) { self = .text(text) }
+        else { self = .weekly(try c.decode([Day].self)) }
+    }
+    var display: String {
+        switch self {
+        case .text(let value): return value
+        case .weekly(let days):
+            let names = ["MONDAY":"월", "TUESDAY":"화", "WEDNESDAY":"수", "THURSDAY":"목", "FRIDAY":"금", "SATURDAY":"토", "SUNDAY":"일"]
+            return days.map { "\(names[$0.dayOfWeek] ?? $0.dayOfWeek) \($0.closed ? "휴무" : "\($0.openTime ?? "–")–\($0.closeTime ?? "–")")" }.joined(separator: " · ")
+        }
+    }
+}
+
+enum PlaceCategory {
+    static func title(_ code: String) -> String {
+        ["CAFE":"카페", "FOOD":"음식점", "CULTURE":"문화공간", "ATTRACTION":"관광지", "PARK":"공원", "LODGING":"숙소", "LEISURE":"레저", "SHOPPING":"쇼핑", "EVENT":"행사"][code] ?? "장소"
     }
 }

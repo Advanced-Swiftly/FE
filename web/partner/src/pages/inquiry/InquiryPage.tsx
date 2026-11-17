@@ -26,7 +26,7 @@ export function InquiryPage() {
   const store = useOptionalStore();
   const inquiries = useCursorList('inquiries', (cursor) => getInquiryPage({ cursor }));
   // 자주 묻는 질문 API 는 실제 BE 에 없어서 서버 모드에서는 부르지 않고 칸도 숨겨요
-  const faqs = useFetch(`faqs:${USE_MOCK}`, () => (USE_MOCK ? getFaqs() : Promise.resolve([])));
+  const faqs = useFetch(`faqs:${USE_MOCK}`, getFaqs);
   // 관련 신청 고르기: 승인된 매장이 있을 때만, 진행 중인 요청 (F-WREQ-01 status=IN_PROGRESS 첫 페이지)
   const requests = useFetch(`requests:${store?.id ?? 'none'}:open`, () =>
     store ? getRequestPage(store.id, { status: 'IN_PROGRESS', limit: 50 }).then((r) => r.items) : Promise.resolve([]),
@@ -58,7 +58,7 @@ export function InquiryPage() {
     // 'KIND:APPKIND:ID' — 같은 숫자 ID 의 이벤트 · 광고 신청도 따로 골라요
     const [kind, appKind, ...idParts] = related.split(':');
     const relatedRequest: RelatedRequest | null =
-      related && USE_MOCK ? { kind: kind as RelatedRequest['kind'], ...(appKind ? { appKind: appKind as RelatedRequest['appKind'] } : {}), id: idParts.join(':') } : null;
+      related ? { kind: kind as RelatedRequest['kind'], ...(appKind ? { appKind: appKind as RelatedRequest['appKind'] } : {}), id: idParts.join(':') } : null;
     const res = await submit.run({ type: type as InquiryType, relatedRequest, title, content: body, placeId: store?.id ?? null }, files, USE_MOCK ? [] : urls);
     if (!res.ok) return;
     setTitle('');
@@ -102,7 +102,7 @@ export function InquiryPage() {
           </fieldset>
 
 {/* 서버 문의 API(POST /inquiries)에는 관련 신청 필드가 없어 서버 모드에서는 숨겨요 */}
-          {USE_MOCK && (
+          {(
                     <Field
             label={
               <>
@@ -177,7 +177,7 @@ export function InquiryPage() {
                 </>
               }
               htmlFor="inq-urls"
-              hint={`사진 · 파일이 올라가 있는 https 주소를 한 줄에 하나씩, 5개까지 적어 주세요 (${urls.length}/5). 서버에 파일 업로드 기능이 아직 없어요.`}
+              hint={`사진 · 파일이 올라가 있는 https 주소를 한 줄에 하나씩, 5개까지 적어 주세요 (${urls.length}/5). 사진·PDF 파일을 직접 첨부할 수도 있어요.`}
               message={badUrl ? { tone: 'error', text: `https 주소인지 확인해 주세요: ${badUrl}` } : urls.length > 5 ? { tone: 'error', text: '첨부 주소는 5개까지예요' } : null}
             >
               <TextArea id="inq-urls" rows={2} value={urlText} onChange={(e) => setUrlText(e.target.value)} />
@@ -185,14 +185,10 @@ export function InquiryPage() {
           )}
           {submit.error && <Notice tone="danger" role="alert">{submit.error}</Notice>}
           <div className={page.actionsBetween}>
-            {USE_MOCK ? (
               <Button variant="secondary" disabled={files.length >= MAX_FILES} onClick={() => fileInput.current?.click()}>
                 <Icon name="upload" />
                 사진 · 파일 첨부 {files.length > 0 && `(${files.length}/${MAX_FILES})`}
               </Button>
-            ) : (
-              <span />
-            )}
             <Button type="submit" disabled={submit.pending}>
               {submit.pending ? '보내는 중…' : '문의 보내기'}
             </Button>
@@ -246,7 +242,7 @@ export function InquiryPage() {
             )}
           </Card>
 
-          {USE_MOCK && (
+          {(
           <Card title="자주 묻는 질문">
             <LoadState status={faqs.status} errorText={faqs.error?.message} onRetry={faqs.reload} />
             {faqs.data?.length === 0 && <p className={page.muted}>등록된 질문이 없어요.</p>}
