@@ -47,13 +47,20 @@ struct PlaceDetailView: View {
 
     private func content(_ d: PlaceDetail) -> some View {
         let verdict = d.verdict
-        let sentence = VerdictSentence.make(verdict: verdict, dogs: dogs, judgments: judgments, dogVerdicts: dogVerdicts)
+        let sentence = d.entryArea == "OUTDOOR" && verdict == .entryOK ? (title: "야외 테라스를 이용할 수 있어요", detail: "실내 이용 조건은 별도로 확인해 주세요.") : VerdictSentence.make(verdict: verdict, dogs: dogs, judgments: judgments, dogVerdicts: dogVerdicts)
         let rows = ConditionTable.rows(detail: d, dogs: dogs, judgments: judgments)
 
         return ZStack(alignment: .top) {
             ScrollView {
                 ZStack(alignment: .top) {
-                    photoPlaceholder
+                    Group {
+                        if let url = d.imageUrls?.first.flatMap({ URL(string: $0) }) {
+                            AsyncImage(url: url) { phase in
+                                if let image = phase.image { image.resizable().scaledToFill() }
+                                else { photoPlaceholder }
+                            }.frame(height: 220).clipped()
+                        } else { photoPlaceholder }
+                    }
                     VStack(alignment: .leading, spacing: 0) {
                         Text(d.name).font(.pawfit(24, .bold)).tracking(-0.5)
                         Text(subtitle(d)).font(.pawfit(14)).foregroundStyle(PawFitColor.textSecondary).padding(.top, 6)
@@ -66,6 +73,13 @@ struct PlaceDetailView: View {
                         if let address = d.address {
                             infoRow("mappin.and.ellipse", Text(address))
                         }
+                        if let phone = d.phoneNumber, !phone.isEmpty {
+                            infoRow("phone", Text(phone))
+                            if let url = URL(string: "tel:" + phone.filter { $0.isNumber || $0 == "+" }) {
+                                Button("전화하기") { openURL(url) }
+                            }
+                        }
+                        if let hours = d.businessHours, !hours.display.isEmpty { infoRow("clock", Text(hours.display)) }
                         if d.isPublicData {
                             infoRow("building.columns", Text("공공데이터에 등록된 장소예요"))
                         }
@@ -134,7 +148,7 @@ struct PlaceDetailView: View {
 
     private func subtitle(_ d: PlaceDetail) -> String {
         let dist = DistanceText.make(distance(d))
-        if let c = MockPawFitAPI.category(of: d.placeId) { return "\(c) · \(dist)" }
+        if let c = d.category.map(PlaceCategory.title) ?? MockPawFitAPI.category(of: d.placeId) { return "\(c) · \(dist)" }
         return dist
     }
 

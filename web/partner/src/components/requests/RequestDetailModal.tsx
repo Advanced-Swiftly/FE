@@ -1,3 +1,4 @@
+import {PolicyRulesView} from '@/components/policy/PolicyRules';
 import { useState } from 'react';
 import { cancelRequest, getRequestDetail } from '@/api/requests';
 import { Button, ButtonLink } from '@/components/common/Button';
@@ -62,7 +63,7 @@ function RequestDetailBody({ requestId, onClose, onChanged }: { requestId: strin
   const [confirming, setConfirming] = useState(false);
 
   const d = detail.data;
-  const title = d ? (d.changes.length === 1 ? `${CONDITION_LABEL[d.changes[0].field]} 변경` : `입장 조건 ${d.changes.length}개 항목 변경`) : '요청 상세';
+  const title = d ? (d.requestedPolicy ? '입장 조건 변경 요청' : d.changes.length === 1 ? `${CONDITION_LABEL[d.changes[0].field]} 변경` : `입장 조건 ${d.changes.length}개 항목 변경`) : '요청 상세';
 
   const onCancel = async () => {
     if (!(await cancel.run(requestId)).ok) return;
@@ -123,6 +124,8 @@ function RequestDetailBody({ requestId, onClose, onChanged }: { requestId: strin
             <h3 id="rq-content" className={styles.h}>
               요청 내용
             </h3>
+            {d.sourceText && <p>{d.sourceText}</p>}
+            {d.requestedPolicy && <PolicyRulesView rules={d.requestedPolicy} breeds={new Map()} />}
             {d.changes.map((ch) => (
               <div key={ch.field} className={styles.changeRow}>
                 <span className={styles.changeLabel}>{CONDITION_LABEL[ch.field]}</span>

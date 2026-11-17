@@ -18,6 +18,7 @@ import styles from './AccountPage.module.css';
 type Panel = null | 'edit' | 'password' | 'delete';
 
 export function AccountPage() {
+  const navigate = useNavigate();
   const account = useFetch('account', getAccount);
   const [panel, setPanel] = useState<Panel>(null);
   const [flash, setFlash] = useState('');
@@ -76,7 +77,7 @@ export function AccountPage() {
 
           {panel === 'password' && (
             <Card title="비밀번호 변경">
-              <PasswordForm onCancel={() => setPanel(null)} onDone={() => done('비밀번호를 바꿨어요.')} />
+              <PasswordForm onCancel={() => setPanel(null)} onDone={() => navigate('/login',{replace:true})} />
             </Card>
           )}
 

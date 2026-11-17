@@ -3,6 +3,7 @@ import type { Faq, Inquiry, NewInquiry, RelatedRequest } from '@/types';
 import { apiClient, mockResponse, USE_MOCK } from './client';
 import { mockError } from './errors';
 import { toId } from './ids';
+import {uploadFile} from './files';
 
 // 명세 F-WQNA-01 ~ 03 (제출본 6.1.6절). 승인 전 계정도 써요. 서버 응답(DTO) → 화면 타입 변환은 이 파일에서만 해요.
 
@@ -52,6 +53,7 @@ const CATEGORY_TO_TYPE: Record<string, string> = { PLACE: '입장 조건', EVENT
 
 /** 내 문의 목록 · 상세 응답 (GET /inquiries · /inquiries/{id}) — 예시에 없는 값은 비워 둬요 */
 interface MyInquiryDto {
+  relatedRequest?: {type: 'AD'|'EVENT'|'CONDITION'; id: string | number} | null;
   inquiryId?: string | number;
   category?: string | null;
   title?: string | null;
@@ -69,7 +71,7 @@ function fromMyInquiry(d: MyInquiryDto): Inquiry {
     type: d.category ? (CATEGORY_TO_TYPE[d.category] ?? d.category) : '',
     title: d.title ?? null,
     content: d.content ?? '',
-    relatedRequest: null,
+    relatedRequest: d.relatedRequest ? {kind:d.relatedRequest.type==='CONDITION'?'CONDITION':'EVENT_AD',appKind:d.relatedRequest.type==='CONDITION'?undefined:d.relatedRequest.type,id:String(d.relatedRequest.id)} : null,
     status: d.status === 'ANSWERED' ? 'ANSWERED' : 'WAITING',
     submittedAt: d.submittedAt ?? d.createdAt ?? '',
     answer: d.answer ? { content: d.answer, answeredAt: d.answeredAt ?? '' } : null,
@@ -134,11 +136,11 @@ export async function createInquiry(input: NewInquiry, files: File[] = [], attac
   }
   // 1:1 문의 등록 — POST /inquiries { category, title(필수 · 100자), content(4000자), attachmentUrls?(https · 5개) }
   // BE 에 파일 업로드 API 가 없어 첨부는 https 주소로만 받아요. 관련 요청 연결(relatedRequest)은 이 API 에 없어요.
-  if (files.length > 0) throw mockError('FIELD_NOT_SUPPORTED', { field: 'attachmentUrls' });
+  const uploaded = await Promise.all(files.map(uploadFile));
   if (!json.title) throw mockError('INVALID_REQUEST', { field: 'title' });
-  const urls = attachmentUrls.map((u) => u.trim()).filter(Boolean);
-  if (urls.length > 5 || urls.some((u) => !/^https:\/\/\S+$/.test(u) || u.length > 500)) throw mockError('INVALID_REQUEST', { field: 'attachmentUrls' });
+  const urls = [...attachmentUrls.map((u) => u.trim()).filter(Boolean), ...uploaded];
+  if (urls.length > 5 || urls.some((u) => !(/^(https:\/\/\S+|\/api\/v1\/files\/[0-9a-f-]{36})$/i.test(u)) || u.length > 500)) throw mockError('INVALID_REQUEST', { field: 'attachmentUrls' });
   const category = TYPE_TO_CATEGORY[input.type] ?? 'ETC';
-  const { data } = await apiClient.post<{ inquiryId: string | number; status: string }>('/inquiries', { category, title: json.title, content: json.content, ...(urls.length ? { attachmentUrls: urls } : {}) });
+  const { data } = await apiClient.post<{ inquiryId: string | number; status: string }>('/inquiries', { category, title: json.title, content: json.content, relatedRequest: json.relatedRequest ? {type: json.relatedRequest.kind==='CONDITION'?'CONDITION':json.relatedRequest.appKind, id:Number(json.relatedRequest.id)} : null, ...(urls.length ? { attachmentUrls: urls } : {}) });
   return { id: toId(data.inquiryId) ?? '' };
 }

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CODE_RE, KNOWN_CODE_LABEL, RULE_GROUP_LABEL, RULE_GROUPS, type PolicyRule, type RuleGroup, type RuleSet } from '@/api/policy';
+import { CODE_RE, KNOWN_CODE_LABEL, RULE_GROUP_LABEL, RULE_GROUPS, type PolicyRule, type RuleGroup, type RuleSet, type EntryConditions, type AreaPolicy } from '@/api/policy';
 import { Button } from '@/components/common/Button';
 import { Choice, InputRow, Select, TextInput } from '@/components/common/Field';
 import styles from './PolicyRules.module.css';
@@ -21,7 +21,19 @@ const REQ_TEXT: Record<RuleGroup, [string, string]> = {
 export function PolicyRulesView({ rules, breeds, compareTo }: { rules: RuleSet; breeds: Map<string, string>; compareTo?: RuleSet }) {
   return (
     <dl className={styles.groups}>
-      {RULE_GROUPS.map((g) => {
+      {rules.conditions && <>
+        <div className={styles.group}><dt>동반 여부</dt><dd>{rules.conditions.petsAllowed === false ? '동반 불가' : '동반 가능'}</dd></div>
+        {(['indoor', 'outdoor'] as const).map(area => {
+          const r = rules.conditions?.[area];
+          return <div className={styles.group} key={area}><dt>{area === 'indoor' ? '실내' : '야외 테라스'}</dt><dd>
+            {!r || r.allowed === false ? '이용 불가' : `${r.maxWeightKg ? `${r.maxWeightKg}kg 이하` : '체중 제한 없음'} · ${r.equipmentCodes.map(c => KNOWN_CODE_LABEL[c] ?? c).join(', ') || '준비물 제한 없음'}`}
+          </dd></div>;
+        })}
+        <div className={styles.group}><dt>적용 시작일</dt><dd>{rules.conditions.effectiveFrom ?? '승인일부터'}</dd></div>
+        <div className={styles.group}><dt>예방접종 조건 확인</dt><dd>{rules.conditions.vaccinationConfirmed ? '확인 완료' : '미확인'}</dd></div>
+        <div className={styles.group}><dt>안내</dt><dd>{rules.conditions.notice || '등록된 공지 없음'}</dd></div>
+      </>}
+      {RULE_GROUPS.filter(g=>g!=='equipmentRules'||!rules.conditions).map((g) => {
         const list = rules[g];
         const before = compareTo?.[g];
         const removed = before ? before.filter((b) => !list.some((x) => x.code === b.code)) : [];
@@ -62,7 +74,8 @@ export function PolicyRulesView({ rules, breeds, compareTo }: { rules: RuleSet; 
 export function PolicyRulesEditor({ value, onChange, breeds }: { value: RuleSet; onChange: (next: RuleSet) => void; breeds: Map<string, string> }) {
   return (
     <div className={styles.groups}>
-      {RULE_GROUPS.map((g) => (
+      <AreaConditionsEditor value={value.conditions} onChange={conditions => onChange({...value, conditions})} />
+      {RULE_GROUPS.filter(g=>g!=='equipmentRules'||!value.conditions).map((g) => (
         <GroupEditor key={g} group={g} list={value[g]} breeds={breeds} onChange={(list) => onChange({ ...value, [g]: list })} />
       ))}
     </div>
@@ -122,4 +135,27 @@ function GroupEditor({ group, list, breeds, onChange }: { group: RuleGroup; list
       {dup && <p className={styles.error}>이미 있는 조건이에요.</p>}
     </fieldset>
   );
+}
+
+function AreaConditionsEditor({value,onChange}:{value?:EntryConditions|null;onChange:(c:EntryConditions)=>void}) {
+  const c=value ?? {petsAllowed:true,indoor:{allowed:true,maxWeightKg:null,equipmentCodes:[]},outdoor:{allowed:false,equipmentCodes:[]}};
+  const set=(patch:Partial<EntryConditions>)=>onChange({...c,...patch});
+  const area=(key:'indoor'|'outdoor',patch:Partial<AreaPolicy>)=>set({[key]:{allowed:true,equipmentCodes:[],...c[key],...patch}});
+  return <fieldset className={styles.group}>
+    <legend>이용 구역·체중·적용일</legend>
+    <Choice type="checkbox" label="반려견 동반 가능" checked={c.petsAllowed!==false} onChange={e=>set({petsAllowed:e.target.checked})}/>
+    {(['indoor','outdoor'] as const).map(key=><div key={key}>
+      <Choice type="checkbox" label={key==='indoor'?'실내 이용 가능':'야외 테라스 이용 가능'} checked={c[key]?.allowed===true} onChange={e=>area(key,{allowed:e.target.checked})}/>
+      {c[key]?.allowed && <>
+        <label>{key==='indoor'?'실내':'야외'} 최대 체중 (비우면 제한 없음)
+          <TextInput type="number" min="0.01" max="9999.99" step="0.01" value={c[key]?.maxWeightKg ?? ''} onChange={e=>area(key,{maxWeightKg:e.target.value ? Number(e.target.value):null})}/>
+        </label>
+        {['STROLLER','CARRIER','BELLY_BAND','LEASH'].map(code=><Choice key={code} type="checkbox" label={`${KNOWN_CODE_LABEL[code]} 필수`} checked={c[key]?.equipmentCodes.includes(code) ?? false} onChange={e=>area(key,{equipmentCodes:e.target.checked ? [...(c[key]?.equipmentCodes ?? []),code]:(c[key]?.equipmentCodes ?? []).filter(x=>x!==code)})}/>)}
+      </>}
+    </div>)}
+    <label>적용 시작일<TextInput type="date" value={c.effectiveFrom ?? ''} onChange={e=>set({effectiveFrom:e.target.value||null})}/></label>
+    <label>공지 문장<TextInput maxLength={500} value={c.notice ?? ''} onChange={e=>set({notice:e.target.value})}/></label>
+    <label>변경 사유<TextInput maxLength={500} value={c.changeReason ?? ''} onChange={e=>set({changeReason:e.target.value})}/></label>
+    <Choice type="checkbox" label="예방접종 확인 조건 검토 완료" checked={c.vaccinationConfirmed===true} onChange={e=>set({vaccinationConfirmed:e.target.checked})}/>
+  </fieldset>;
 }

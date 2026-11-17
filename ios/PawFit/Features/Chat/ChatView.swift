@@ -12,6 +12,7 @@ struct ChatView: View {
     @State private var sessionId: Int64?
     @State private var input = ""
     @State private var sending = false
+    @State private var appliedActions: Set<String> = []
     @State private var location = LocationProvider()
     @State private var message: String?
     @State private var editDogId: Int64?
@@ -75,8 +76,8 @@ struct ChatView: View {
             .padding(.horizontal, 24).padding(.top, 40)
 
             exampleGroup("매장 입장 확인", badge: nil, [
-                "FF카페에 \(second) 데려가도 돼?",
-                dogs.count > 1 ? "AA카페에 \(Josa.with(first)) \(second) 같이 가도 돼?" : "AA카페에 \(first) 데려가도 돼?",
+                "테라스 오브 성수에 \(second) 데려가도 돼?",
+                dogs.count > 1 ? "온유커피 성수에 \(Josa.with(first)) \(second) 같이 가도 돼?" : "온유커피 성수에 \(first) 데려가도 돼?",
             ])
             exampleGroup("동반 가능한 곳 찾기", badge: "공공데이터", [
                 "강릉에 반려견이랑 묵을 숙소 있어?",
@@ -131,8 +132,15 @@ struct ChatView: View {
                                 .frame(maxWidth: 300, alignment: .trailing)
                                 .frame(maxWidth: .infinity, alignment: .trailing)
                         case .assistant:
-                            AssistantBubble(message: m, openMapPlace: openMapPlace)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                            VStack(alignment: .leading) {
+                                AssistantBubble(message: m, openMapPlace: openMapPlace)
+                                if let action = m.profileAction {
+                                    Button(appliedActions.contains(action.actionId) ? "반영 완료" : action.confirmLabel) {
+                                        Task { await confirmProfile(action) }
+                                    }.buttonStyle(.borderedProminent)
+                                        .disabled(sending || appliedActions.contains(action.actionId))
+                                }
+                            }.frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
                     if sending {
@@ -184,12 +192,7 @@ struct ChatView: View {
 
     /// "콩이 프로필에 유모차 추가" 칩은 반려견 정보 수정 화면으로, 나머지는 질문으로 보낸다
     private func tapChip(_ chip: String) {
-        if chip.contains("프로필에"), let dog = store.dogs.first(where: { chip.hasPrefix($0.name + " ") }) {
-            focused = false
-            editDogId = dog.dogId
-        } else {
-            send(chip)
-        }
+        send(chip)
     }
 
     private func send(_ raw: String) {
@@ -211,12 +214,25 @@ struct ChatView: View {
                     latitude: here.latitude, longitude: here.longitude))
                 let cards = await loadCards(sent.assistantMessage.places ?? [], dogs: dogs)
                 var reply = ChatMessage(role: .assistant, text: sent.assistantMessage.content, cards: cards)
+                reply.profileAction = sent.assistantMessage.profileAction
                 reply.followUps = followUps(question: text, cards: cards)
                 messages.append(reply)
             } catch {
                 messages.append(ChatMessage(role: .assistant, text: APIError.message(error), failed: true))
             }
         }
+    }
+
+    private func confirmProfile(_ action: ChatProfileAction) async {
+        guard let sessionId, !sending else { return }
+        sending = true
+        defer { sending = false }
+        do {
+            try await store.api.confirmChatProfile(sessionId: sessionId, actionId: action.actionId)
+            appliedActions.insert(action.actionId)
+            await store.reloadDogs()
+            message = "\(action.dogName) 프로필에 반영했어요"
+        } catch { message = APIError.message(error) }
     }
 
     /// 답변에 나온 장소마다 상세 · 반려견별 판정을 불러 카드로 만든다
@@ -273,6 +289,7 @@ struct ChatMessage: Identifiable {
     var cards: [ChatPlaceCard] = []
     var failed = false
     var followUps: [String] = []
+    var profileAction: ChatProfileAction? = nil
 }
 
 struct ChatPlaceCard: Identifiable {
