@@ -23,13 +23,16 @@ interface StoreItemDto {
  * 승인 대기 매장(업체 인증 진행 중)은 이 응답에 없어요 — 출처는 백엔드 확인 사항.
  * ID 가 없는 줄은 고를 수 없어서 빼요.
  */
+/** 이 매장을 고르고 관리할 수 있는지 — 실제 권한은 요청마다 서버가 다시 확인해요 */
+export const canManageStore = (s: Pick<Store, 'verification'>) => s.verification !== 'PENDING';
+
 export async function getMyStores(): Promise<Store[]> {
   if (USE_MOCK) return mockResponse(MOCK_STORES);
   const { data } = await apiClient.get<{ stores?: StoreItemDto[] | null }>('/business/stores');
   return (data?.stores ?? []).flatMap((s) => {
     const id = toId(s.storeId);
     if (!id) return [];
-    return [{ id, name: s.name ?? '', area: null, category: null, verification: 'APPROVED' as const, visibility: s.visibility ?? null }];
+    return [{ id, name: s.name ?? '', area: null, category: null, verification: 'LINKED' as const, visibility: s.visibility ?? null }];
   });
 }
 

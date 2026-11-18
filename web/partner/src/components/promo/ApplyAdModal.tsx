@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { USE_MOCK } from '@/api/client';
 import { applyAd } from '@/api/promo';
+import { canManageStore } from '@/api/stores';
 import { Button } from '@/components/common/Button';
 import { Field, Select, TextInput } from '@/components/common/Field';
 import { Modal } from '@/components/common/Modal';
@@ -27,7 +28,7 @@ interface Props {
 /** UI-W-016 지도 추천 노출 광고 신청 (F-WAD-05) */
 export function ApplyAdModal({ defaultArea, onClose, onDone }: Props) {
   const { store: current, stores } = useCurrentStore();
-  const approved = stores.filter((s) => s.verification === 'APPROVED');
+  const approved = stores.filter(canManageStore);
   const [storeId, setStoreId] = useState(current.id);
   const store = approved.find((s) => s.id === storeId) ?? approved[0];
   // 매장 지역을 모르면 첫 지역을 고르지 않고 비워 둬요. 운영자가 고르게 해요 (서버가 매장 지역과 다시 비교해요).
@@ -37,7 +38,8 @@ export function ApplyAdModal({ defaultArea, onClose, onDone }: Props) {
   // 오늘 0시 (팝업을 연 시점 기준)
   const [today] = useState(() => new Date(new Date().toDateString()).getTime());
   // 서버 모드 — BE 광고 신청의 필수값 (광고 종류 · 광고 소재 URL) 과 전달사항
-  const [adType, setAdType] = useState<'BANNER' | 'RECOMMENDED' | ''>('');
+  const [adType, setAdType] = useState<'BANNER' | 'RECOMMENDED' | ''>('RECOMMENDED');
+  const [tried, setTried] = useState(false);
   const [creativeUrl, setCreativeUrl] = useState('');
   const [message, setMessage] = useState('');
   const submit = useAction(applyAd);
@@ -53,6 +55,7 @@ export function ApplyAdModal({ defaultArea, onClose, onDone }: Props) {
   const canSubmit = (USE_MOCK ? area !== '' : adType !== '' && urlOk && creativeUrl.trim().length <= 500 && message.length <= 500) && isMonday && !isPast && !areaMismatch && !submit.pending;
 
   const onSubmit = async () => {
+    setTried(true);
     if (!canSubmit) return;
     const res = await submit.run({ storeId: store.id, region: area, startDate, weeks, ...(USE_MOCK ? {} : { adType: adType || undefined, creativeUrl: creativeUrl.trim(), message }) });
     if (res.ok) onDone(res.data.id);
@@ -71,7 +74,7 @@ export function ApplyAdModal({ defaultArea, onClose, onDone }: Props) {
             <Button variant="secondary" onClick={onClose}>
               취소
             </Button>
-            <Button onClick={onSubmit} disabled={!canSubmit}>
+            <Button onClick={onSubmit} disabled={submit.pending}>
               {submit.pending ? '보내는 중…' : '신청하기'}
             </Button>
           </div>
@@ -128,7 +131,7 @@ export function ApplyAdModal({ defaultArea, onClose, onDone }: Props) {
         >
           <TextInput id="ad-start" type="date" value={startDate} aria-invalid={!isMonday || isPast} onChange={(e) => setStartDate(e.target.value)} />
         </Field>
-        <Field label="기간" htmlFor="ad-weeks" hint={`${formatDate(start, true)} – ${formatDate(end, true)} (끝나는 날은 서버가 계산해요)`}>
+        <Field label="기간" htmlFor="ad-weeks" hint={`${formatDate(start, true)} – ${formatDate(end, true)} (시작일 · 종료일 포함)`}>
           <Select id="ad-weeks" value={weeks} onChange={(e) => setWeeks(Number(e.target.value))}>
             {[1, 2, 3, 4].map((w) => (
               <option key={w} value={w}>
@@ -141,10 +144,10 @@ export function ApplyAdModal({ defaultArea, onClose, onDone }: Props) {
       {!USE_MOCK && (
         <>
           <Field
-            label="광고 소재 URL"
+            label="광고 소재 URL (필수)"
             htmlFor="ad-creative"
-            hint="광고에 쓸 이미지가 올라가 있는 https 주소를 적어 주세요 (파일 업로드는 아직 서버에 없어요)"
-            message={creativeUrl && !urlOk ? { tone: 'error', text: 'http(s):// 로 시작하는 주소를 적어 주세요' } : null}
+            hint="광고 이미지가 올라가 있는 http(s) 주소를 적어 주세요. 광고 신청은 파일 직접 첨부를 아직 받지 않아요."
+            message={creativeUrl && !urlOk ? { tone: 'error', text: 'http(s):// 로 시작하는 주소를 적어 주세요' } : tried && !creativeUrl.trim() ? { tone: 'error', text: '광고 소재 주소를 적어 주세요' } : null}
           >
             <TextInput id="ad-creative" type="url" inputMode="url" placeholder="https://" value={creativeUrl} maxLength={500} aria-invalid={creativeUrl !== '' && !urlOk} onChange={(e) => setCreativeUrl(e.target.value)} />
           </Field>

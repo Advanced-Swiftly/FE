@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CODE_RE, KNOWN_CODE_LABEL, RULE_GROUP_LABEL, RULE_GROUPS, type PolicyRule, type RuleGroup, type RuleSet, type EntryConditions, type AreaPolicy } from '@/api/policy';
+import { CODE_RE, diffConditions, KNOWN_CODE_LABEL, RULE_GROUP_LABEL, RULE_GROUPS, type PolicyRule, type RuleGroup, type RuleSet, type EntryConditions, type AreaPolicy } from '@/api/policy';
 import { Button } from '@/components/common/Button';
 import { Choice, InputRow, Select, TextInput } from '@/components/common/Field';
 import styles from './PolicyRules.module.css';
@@ -18,10 +18,10 @@ const REQ_TEXT: Record<RuleGroup, [string, string]> = {
 };
 
 /** 읽기 전용 정책 표 */
-export function PolicyRulesView({ rules, breeds, compareTo }: { rules: RuleSet; breeds: Map<string, string>; compareTo?: RuleSet }) {
+export function PolicyRulesView({ rules, breeds, compareTo, hideConditions = false }: { rules: RuleSet; breeds: Map<string, string>; compareTo?: RuleSet; hideConditions?: boolean }) {
   return (
     <dl className={styles.groups}>
-      {rules.conditions && <>
+      {rules.conditions && !hideConditions && <>
         <div className={styles.group}><dt>동반 여부</dt><dd>{rules.conditions.petsAllowed === false ? '동반 불가' : '동반 가능'}</dd></div>
         {(['indoor', 'outdoor'] as const).map(area => {
           const r = rules.conditions?.[area];
@@ -70,11 +70,29 @@ export function PolicyRulesView({ rules, breeds, compareTo }: { rules: RuleSet; 
   );
 }
 
+/** 구역 · 체중 · 적용일 조건의 변경 전후 요약 */
+export function ConditionChanges({ before, after }: { before?: EntryConditions | null; after?: EntryConditions | null }) {
+  const rows = diffConditions(before, after);
+  if (rows.length === 0) return <p className={styles.muted}>구역 · 체중 · 적용일 조건은 달라지지 않았어요.</p>;
+  return (
+    <dl className={styles.groups}>
+      {rows.map((r) => (
+        <div key={r.label} className={styles.group}>
+          <dt>{r.label}</dt>
+          <dd>
+            <span className={styles.muted}>{r.before}</span> → <strong className={styles.changed}>{r.after}</strong>
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 /** 정책 편집 — 지금 정책 전체를 받아서 고친 전체 정책을 돌려줘요 (빠진 조건이 지워지지 않게) */
 export function PolicyRulesEditor({ value, onChange, breeds }: { value: RuleSet; onChange: (next: RuleSet) => void; breeds: Map<string, string> }) {
   return (
     <div className={styles.groups}>
-      <AreaConditionsEditor value={value.conditions} onChange={conditions => onChange({...value, conditions})} />
+      <AreaConditionsEditor value={value.conditions} requiredEquipment={value.equipmentRules.filter((r) => r.required).map((r) => r.code)} onChange={conditions => onChange({...value, conditions})} />
       {RULE_GROUPS.filter(g=>g!=='equipmentRules'||!value.conditions).map((g) => (
         <GroupEditor key={g} group={g} list={value[g]} breeds={breeds} onChange={(list) => onChange({ ...value, [g]: list })} />
       ))}
@@ -137,8 +155,11 @@ function GroupEditor({ group, list, breeds, onChange }: { group: RuleGroup; list
   );
 }
 
-function AreaConditionsEditor({value,onChange}:{value?:EntryConditions|null;onChange:(c:EntryConditions)=>void}) {
-  const c=value ?? {petsAllowed:true,indoor:{allowed:true,maxWeightKg:null,equipmentCodes:[]},outdoor:{allowed:false,equipmentCodes:[]}};
+const AREA_EQUIPMENT = ['STROLLER', 'CARRIER', 'BELLY_BAND', 'LEASH'];
+
+function AreaConditionsEditor({value,requiredEquipment,onChange}:{value?:EntryConditions|null;requiredEquipment:string[];onChange:(c:EntryConditions)=>void}) {
+  // 구역을 지정하면 서버는 구역별 준비물만 판정해요. 처음 구역 조건을 만들 때 기존 필수 준비물이 빠지지 않게 이어받아요
+  const c=value ?? {petsAllowed:true,indoor:{allowed:true,maxWeightKg:null,equipmentCodes:requiredEquipment},outdoor:{allowed:false,equipmentCodes:requiredEquipment}};
   const set=(patch:Partial<EntryConditions>)=>onChange({...c,...patch});
   const area=(key:'indoor'|'outdoor',patch:Partial<AreaPolicy>)=>set({[key]:{allowed:true,equipmentCodes:[],...c[key],...patch}});
   return <fieldset className={styles.group}>
@@ -150,7 +171,7 @@ function AreaConditionsEditor({value,onChange}:{value?:EntryConditions|null;onCh
         <label>{key==='indoor'?'실내':'야외'} 최대 체중 (비우면 제한 없음)
           <TextInput type="number" min="0.01" max="9999.99" step="0.01" value={c[key]?.maxWeightKg ?? ''} onChange={e=>area(key,{maxWeightKg:e.target.value ? Number(e.target.value):null})}/>
         </label>
-        {['STROLLER','CARRIER','BELLY_BAND','LEASH'].map(code=><Choice key={code} type="checkbox" label={`${KNOWN_CODE_LABEL[code]} 필수`} checked={c[key]?.equipmentCodes.includes(code) ?? false} onChange={e=>area(key,{equipmentCodes:e.target.checked ? [...(c[key]?.equipmentCodes ?? []),code]:(c[key]?.equipmentCodes ?? []).filter(x=>x!==code)})}/>)}
+        {[...new Set([...AREA_EQUIPMENT,...(c[key]?.equipmentCodes ?? [])])].map(code=><Choice key={code} type="checkbox" label={`${KNOWN_CODE_LABEL[code] ?? code} 필수`} checked={c[key]?.equipmentCodes.includes(code) ?? false} onChange={e=>area(key,{equipmentCodes:e.target.checked ? [...(c[key]?.equipmentCodes ?? []),code]:(c[key]?.equipmentCodes ?? []).filter(x=>x!==code)})}/>)}
       </>}
     </div>)}
     <label>적용 시작일<TextInput type="date" value={c.effectiveFrom ?? ''} onChange={e=>set({effectiveFrom:e.target.value||null})}/></label>

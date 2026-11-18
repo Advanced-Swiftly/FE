@@ -2,14 +2,16 @@ import { useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { previewPolicy, createPolicyRequest, getBreedNames, getStorePolicy, resubmitPolicyRequest, sameRules, type RuleSet, type StorePolicy } from '@/api/policy';
 import { uploadFile } from '@/api/files';
-import { getRequestDetail } from '@/api/requests';
+import { getPendingConditionRequests, getRequestDetail } from '@/api/requests';
 import { Button, ButtonLink } from '@/components/common/Button';
 import { Card } from '@/components/common/Card';
 import { Choice, Field, TextArea } from '@/components/common/Field';
 import { LoadState } from '@/components/common/LoadState';
 import { Notice } from '@/components/common/Notice';
 import { PageHeader } from '@/components/common/PageHeader';
-import { PolicyRulesEditor, PolicyRulesView } from '@/components/policy/PolicyRules';
+import { ConditionChanges, PolicyRulesEditor, PolicyRulesView } from '@/components/policy/PolicyRules';
+import { StatusChip } from '@/components/common/StatusChip';
+import { RequestDetailModal } from '@/components/requests/RequestDetailModal';
 import { REQUEST_STATUS_LABEL } from '@/constants/status';
 import { useAction } from '@/hooks/useAction';
 import { useCurrentStore } from '@/hooks/useCurrentStore';
@@ -28,6 +30,8 @@ export function ServerConditionsPage() {
   const flash = (location.state as { flash?: string } | null)?.flash;
   const policy = useFetch(`policy:${store.id}`, () => getStorePolicy(store.id));
   const breeds = useFetch('breeds', getBreedNames);
+  const pending = useFetch(`pending-conditions:${store.id}`, () => getPendingConditionRequests(store.id));
+  const [openRequestId, setOpenRequestId] = useState<string | null>(null);
   return (
     <div className={page.stack}>
       <PageHeader title="입장 조건 현황" description="보호자에게 안내되는 우리 매장 입장 조건이에요. 바꾸려면 변경 요청을 보내 주세요. 운영자가 승인하면 반영돼요." />
@@ -37,6 +41,35 @@ export function ServerConditionsPage() {
         </Notice>
       )}
       <Notice>{SCOPE_NOTE}</Notice>
+      {pending.status === 'error' && (
+        <Notice
+          tone="warning"
+          action={
+            <Button variant="secondary" size="sm" onClick={pending.reload}>
+              다시 불러오기
+            </Button>
+          }
+        >
+          진행 중인 변경 요청을 불러오지 못했어요.
+        </Notice>
+      )}
+      {pending.data && pending.data.length > 0 && (
+        <Card title="진행 중인 변경 요청" aside={`${pending.data.length}건`}>
+          <p className={page.muted}>운영자가 승인하기 전까지 아래 현재 입장 조건이 그대로 유지돼요.</p>
+          <ul className={page.stackSm} style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+            {pending.data.map((r) => (
+              <li key={r.id} className={page.actionsBetween}>
+                <span>
+                  <StatusChip status={r.status} /> {r.sourcePreview ?? r.summaryText}
+                </span>
+                <Button variant="secondary" size="sm" onClick={() => setOpenRequestId(r.id)}>
+                  자세히
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
       <LoadState status={policy.status} errorText={policy.error?.message} onRetry={policy.reload} />
       {policy.data && (
         <Card title="현재 입장 조건" aside={policy.data.exists ? `정책 버전 ${policy.data.version}` : '아직 등록된 정책 없음'}>
@@ -48,6 +81,7 @@ export function ServerConditionsPage() {
           </div>
         </Card>
       )}
+      <RequestDetailModal requestId={openRequestId} onClose={() => setOpenRequestId(null)} onChanged={pending.reload} />
     </div>
   );
 }
@@ -98,6 +132,7 @@ function EditForm({ policy, breeds, request, onReload }: { policy: StorePolicy; 
   const [uploaded, setUploaded] = useState<{name:string;url:string}[]>([]);
   const [uploading,setUploading] = useState(false);
   const [uploadError,setUploadError] = useState<string|null>(null);
+  const [tried, setTried] = useState(false);
   const preview=useFetch(`policy-preview:${store.id}:${JSON.stringify(draft)}`,()=>previewPolicy(store.id,draft));
   const verdictLabel:Record<string,string>={ENTRY_OK:'입장 가능',PREPARE:'준비 필요',CHECK_REQUIRED:'정보 확인 필요',ENTRY_DENIED:'입장 불가'};
   const create = useAction(createPolicyRequest);
@@ -107,12 +142,21 @@ function EditForm({ policy, breeds, request, onReload }: { policy: StorePolicy; 
   const urls = [...parseUrls(urlText), ...uploaded.map(f=>f.url)];
   const badUrl = urls.find((u) => !URL_RE.test(u) || u.length > 500);
   const changed = !sameRules(draft, policy);
-  const textOk = sourceText.trim().length <= 2000 && (resubmit || sourceText.trim().length > 0);
-  const canSubmit = !uploading && !action.pending && textOk && !badUrl && urls.length <= 10 && (resubmit ? sendPolicy || sourceText.trim() !== '' || urls.length > 0 : changed);
+  // 정책 원문은 승인되면 입장 조건의 근거로 저장되는 값이라, 공지 · 변경 사유로 대신 채우지 않고 직접 적게 해요
+  const sourceMissing = !resubmit && sourceText.trim().length === 0;
+  const blockers = [
+    !resubmit && !changed ? '바꿀 입장 조건을 하나 이상 고쳐 주세요.' : null,
+    resubmit && !sendPolicy && sourceText.trim() === '' && urls.length === 0 ? '보완할 정책, 정책 원문, 근거 중 하나 이상을 입력해 주세요.' : null,
+    sourceMissing ? '정책 원문을 적어 주세요.' : null,
+    badUrl ? '근거 주소 형식을 확인해 주세요.' : null,
+    urls.length > 10 ? '근거 자료는 10개까지 첨부할 수 있어요.' : null,
+  ].filter((x): x is string => x !== null);
+  const canSubmit = !uploading && !action.pending && blockers.length === 0;
   const conflict = action.errorCode === 'POLICY_VERSION_CONFLICT';
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    setTried(true);
     if (!canSubmit) return;
     const res = resubmit ? await re.run(request.id, sendPolicy ? draft : null, sourceText, urls) : await create.run(store.id, policy.version, draft, sourceText, urls);
     if (res.ok) navigate('/conditions', { state: { flash: resubmit ? '보완 내용을 보냈어요. 운영자가 다시 확인해요.' : '변경 요청을 보냈어요. 운영자가 승인하면 반영돼요.' } });
@@ -133,8 +177,9 @@ function EditForm({ policy, breeds, request, onReload }: { policy: StorePolicy; 
         {!resubmit && !changed && <p className={page.muted}>지금 정책과 달라진 조건이 없어요.</p>}
         {(!resubmit || sendPolicy) && changed && (
           <>
-            <h3 className={page.muted}>지금 정책과 비교</h3>
-            <PolicyRulesView rules={draft} compareTo={policy} breeds={breeds} />
+            <h3 className={page.muted}>변경 요약</h3>
+            <ConditionChanges before={policy.conditions} after={draft.conditions} />
+            <PolicyRulesView rules={draft} compareTo={policy} breeds={breeds} hideConditions />
           </>
         )}
       </Card>
@@ -156,7 +201,12 @@ function EditForm({ policy, breeds, request, onReload }: { policy: StorePolicy; 
         {uploading && <p>파일을 올리고 있어요.</p>}
         {uploadError && <Notice tone="danger">{uploadError}</Notice>}
         {uploaded.map(file=><p key={file.url}>{file.name}</p>)}
-        <Field label={resubmit ? '정책 원문 (바꿀 때만)' : '정책 원문'} htmlFor="sv-source" hint={`매장 안내문 · 공지 등 원문을 그대로 적어 주세요. ${sourceText.trim().length}/2000`}>
+        <Field
+          label={resubmit ? '정책 원문 (바꿀 때만)' : '정책 원문 (필수)'}
+          htmlFor="sv-source"
+          hint={`매장 안내문 등 입장 조건의 근거가 되는 원문을 그대로 적어 주세요. 승인되면 입장 조건의 근거로 저장돼요. ${sourceText.trim().length}/2000`}
+          message={tried && sourceMissing ? { tone: 'error', text: '정책 원문을 적어 주세요' } : null}
+        >
           <TextArea id="sv-source" rows={4} maxLength={2000} value={sourceText} onChange={(e) => setSourceText(e.target.value)} />
         </Field>
         <Field
@@ -168,6 +218,16 @@ function EditForm({ policy, breeds, request, onReload }: { policy: StorePolicy; 
           <TextArea id="sv-urls" rows={3} value={urlText} onChange={(e) => setUrlText(e.target.value)} />
         </Field>
       </Card>
+      {tried && blockers.length > 0 && (
+        <Notice tone="warning" role="alert">
+          <strong>아직 보낼 수 없어요</strong>
+          {blockers.map((b) => (
+            <span key={b} style={{ display: 'block' }}>
+              {b}
+            </span>
+          ))}
+        </Notice>
+      )}
       {action.error && (
         <Notice
           tone="danger"
@@ -187,7 +247,7 @@ function EditForm({ policy, breeds, request, onReload }: { policy: StorePolicy; 
         <ButtonLink to="/conditions" variant="secondary">
           취소
         </ButtonLink>
-        <Button type="submit" disabled={!canSubmit}>
+        <Button type="submit" disabled={uploading || action.pending}>
           {action.pending ? '보내는 중…' : resubmit ? '보완해서 다시 보내기' : '변경 요청 보내기'}
         </Button>
       </div>
