@@ -46,6 +46,9 @@ struct PlaceDetail: Decodable, Identifiable, Sendable {
     var requiredEquipmentCodes: [String]? = nil
     var conditions: PlaceConditions? = nil
     var entryArea: String? = nil
+    var admissionConfirmed: Bool? = nil
+    var policyDetailsComplete: Bool? = nil
+    var maxWeightExclusive: Bool? = nil
 
     var id: String { placeId }
     var coordinate: CLLocationCoordinate2D { .init(latitude: latitude, longitude: longitude) }
@@ -68,6 +71,7 @@ struct EntryJudgmentRequest: Encodable, Sendable { let dogIds: [Int64] }
 /// 서버 판정 사유 코드 → 화면 표현
 enum ReasonCode: Hashable, Sendable {
     case policyUnconfirmed           // POLICY_UNCONFIRMED
+    case policyDetailsUnconfirmed    // Admission confirmed, conditions incomplete
     case petsNotAllowed              // PETS_NOT_ALLOWED
     case weightUnknown               // WEIGHT_UNKNOWN (반려견 체중 미입력)
     case weightExceeded              // WEIGHT_LIMIT_EXCEEDED
@@ -79,6 +83,7 @@ enum ReasonCode: Hashable, Sendable {
     init(_ raw: String) {
         switch raw {
         case "POLICY_UNCONFIRMED": self = .policyUnconfirmed
+        case "POLICY_DETAILS_UNCONFIRMED": self = .policyDetailsUnconfirmed
         case "PETS_NOT_ALLOWED": self = .petsNotAllowed
         case "WEIGHT_UNKNOWN": self = .weightUnknown
         case "WEIGHT_LIMIT_EXCEEDED": self = .weightExceeded
@@ -157,6 +162,29 @@ enum ConditionTable {
         var rows: [ConditionRow] = [
             ConditionRow(label: "동반 여부", placeRule: "가능", results: Array(repeating: .ok("충족"), count: count))
         ]
+
+        if detail.policyDetailsComplete == false || allReasons.contains(.policyDetailsUnconfirmed) {
+            let weightRule = detail.maxWeightKg.map {
+                "\(DogFormat.weight($0)) \(detail.maxWeightExclusive == true ? "미만" : "이하")"
+            } ?? "확인 필요"
+            rows.append(ConditionRow(label: "체중", placeRule: weightRule, results: perDog(dogs, count) { dog in
+                let r = judgments[dog?.dogId ?? -1] ?? []
+                if r.contains(.weightExceeded) { return .denied(dog?.weightKg.map(DogFormat.weight) ?? "초과") }
+                guard detail.maxWeightKg != nil, let weight = dog?.weightKg else { return .unknown }
+                return .ok(DogFormat.weight(weight))
+            }))
+            rows.append(ConditionRow(label: "견종", placeRule: "확인 필요", results: Array(repeating: .unknown, count: count)))
+            for code in detail.requiredEquipmentCodes ?? [] {
+                guard let item = Equipment(rawValue: code) else { continue }
+                rows.append(ConditionRow(label: item.title, placeRule: "필수", results: perDog(dogs, count) { dog in
+                    guard let dog else { return .unknown }
+                    return dog.equipment.contains(item) ? .ok("있음") : .prepare("없음")
+                }))
+            }
+            rows.append(ConditionRow(label: "그 외 준비물", placeRule: "확인 필요", results: Array(repeating: .unknown, count: count)))
+            rows.append(ConditionRow(label: "예방접종", placeRule: "확인 필요", results: Array(repeating: .unknown, count: count)))
+            return rows
+        }
 
         // 체중
         let weightRule = detail.maxWeightKg.map { "\(DogFormat.weight($0)) 이하" } ?? (unrestricted.contains("WEIGHT") ? "제한 없음" : "체중 제한 있음")
