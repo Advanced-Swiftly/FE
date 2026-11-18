@@ -39,6 +39,7 @@ xcodebuild test -project PawFit.xcodeproj -scheme PawFit \
 - 시연 기간 휴대폰 인증번호는 **123456 고정**.
 - API 문서: `https://pawfit-api.onrender.com/swagger-ui.html`
 - 경로는 `Core/Network/APIPath.swift`, 백엔드와의 차이 · 요청할 것은 `docs/백엔드연동.md`.
+- 실제 장소·회색 판정·최신 배포 데이터 확인은 [장소 동반 판정 검증](docs/장소동반판정검증.md)을 참고한다.
 
 개인 설정은 `PawFit/Config/Local.xcconfig.example`을 `Local.xcconfig`로 복사해서 덮어쓴다(저장소에 안 올라감). 목업으로 보거나, 내 맥에서 띄운 백엔드(`http://localhost:8080`)에 붙을 때 쓴다.
 
