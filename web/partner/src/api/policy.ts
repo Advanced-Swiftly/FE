@@ -7,7 +7,7 @@ import { toId, type RawId } from './ids';
  * BE 정책은 '견종 · 준비물 · 예방접종' 세 목록뿐이고, 각 조건은 { code, required } 예요.
  * - 견종(BREED): code = 견종 ID (GET /breeds 의 breedId)
  * - 준비물(EQUIPMENT) · 예방접종(VACCINE): 영문 대문자 코드 (예: CARRIER · RABIES · DHPPL)
- * 동반 가능 · 체중 · 크기 · 이용 구역은 BE 정책에 없어요 (목업 화면에만 있어요).
+ * 동반 가능 · 실내외 체중 · 구역별 준비물 · 적용 시작일 · 공지 · 변경 사유는 conditions 에 있어요.
  */
 
 export type RuleGroup = 'breedRules' | 'equipmentRules' | 'vaccineRules';
@@ -98,6 +98,38 @@ export function toPolicyBody(r: RuleSet) {
 
 const key = (r: RuleSet) => JSON.stringify([r.conditions, RULE_GROUPS.map((g) => [...r[g]].map((x) => `${x.code}:${x.required}`).sort())]);
 export const sameRules = (a: RuleSet, b: RuleSet) => key(a) === key(b);
+
+export interface ConditionChange {
+  label: string;
+  before: string;
+  after: string;
+}
+
+function areaText(a?: AreaPolicy | null) {
+  if (!a || a.allowed === false) return '이용 불가';
+  const weight = a.maxWeightKg ? `${a.maxWeightKg}kg 이하` : '체중 제한 없음';
+  const gear = (a.equipmentCodes ?? []).map((c) => KNOWN_CODE_LABEL[c] ?? c).join(', ') || '준비물 제한 없음';
+  return `${weight} · ${gear}`;
+}
+
+const CONDITION_ROWS: [string, (c: EntryConditions) => string][] = [
+  ['동반 여부', (c) => (c.petsAllowed === false ? '동반 불가' : '동반 가능')],
+  ['실내', (c) => areaText(c.indoor)],
+  ['야외 테라스', (c) => areaText(c.outdoor)],
+  ['적용 시작일', (c) => c.effectiveFrom ?? '승인일부터'],
+  ['공지 문장', (c) => c.notice?.trim() || '없음'],
+  ['예방접종 조건 확인', (c) => (c.vaccinationConfirmed ? '확인 완료' : '미확인')],
+];
+
+/** 구조화 조건에서 달라진 항목만 골라요 */
+export function diffConditions(before?: EntryConditions | null, after?: EntryConditions | null): ConditionChange[] {
+  if (!after) return [];
+  return CONDITION_ROWS.flatMap(([label, read]) => {
+    const prev = before ? read(before) : '지정 안 됨';
+    const next = read(after);
+    return prev === next ? [] : [{ label, before: prev, after: next }];
+  });
+}
 
 /**
  * 입장 조건 변경 요청 — POST /business/stores/{storeId}/condition-requests

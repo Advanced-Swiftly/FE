@@ -54,6 +54,7 @@ const CATEGORY_TO_TYPE: Record<string, string> = { PLACE: '입장 조건', EVENT
 /** 내 문의 목록 · 상세 응답 (GET /inquiries · /inquiries/{id}) — 예시에 없는 값은 비워 둬요 */
 interface MyInquiryDto {
   relatedRequest?: {type: 'AD'|'EVENT'|'CONDITION'; id: string | number} | null;
+  attachmentUrls?: string[] | null;
   inquiryId?: string | number;
   category?: string | null;
   title?: string | null;
@@ -75,6 +76,7 @@ function fromMyInquiry(d: MyInquiryDto): Inquiry {
     status: d.status === 'ANSWERED' ? 'ANSWERED' : 'WAITING',
     submittedAt: d.submittedAt ?? d.createdAt ?? '',
     answer: d.answer ? { content: d.answer, answeredAt: d.answeredAt ?? '' } : null,
+    attachments: (d.attachmentUrls ?? []).map((href, i) => ({ name: `첨부 ${i + 1}`, href })),
   };
 }
 
@@ -135,11 +137,13 @@ export async function createInquiry(input: NewInquiry, files: File[] = [], attac
     return { id: res.inquiryId };
   }
   // 1:1 문의 등록 — POST /inquiries { category, title(필수 · 100자), content(4000자), attachmentUrls?(https · 5개) }
-  // BE 에 파일 업로드 API 가 없어 첨부는 https 주소로만 받아요. 관련 요청 연결(relatedRequest)은 이 API 에 없어요.
-  const uploaded = await Promise.all(files.map(uploadFile));
+  // 파일은 POST /files 로 먼저 올리고, 돌려받은 참조(/api/v1/files/{id})를 문의에 함께 저장해요.
+  // 입력값을 먼저 확인해서, 보낼 수 없는 문의의 파일이 서버에 남지 않게 해요.
   if (!json.title) throw mockError('INVALID_REQUEST', { field: 'title' });
-  const urls = [...attachmentUrls.map((u) => u.trim()).filter(Boolean), ...uploaded];
-  if (urls.length > 5 || urls.some((u) => !(/^(https:\/\/\S+|\/api\/v1\/files\/[0-9a-f-]{36})$/i.test(u)) || u.length > 500)) throw mockError('INVALID_REQUEST', { field: 'attachmentUrls' });
+  const linked = attachmentUrls.map((u) => u.trim()).filter(Boolean);
+  if (linked.length + files.length > 5 || linked.some((u) => !/^https:\/\/\S+$/i.test(u) || u.length > 500)) throw mockError('INVALID_REQUEST', { field: 'attachmentUrls' });
+  const uploaded = await Promise.all(files.map(uploadFile));
+  const urls = [...linked, ...uploaded];
   const category = TYPE_TO_CATEGORY[input.type] ?? 'ETC';
   const { data } = await apiClient.post<{ inquiryId: string | number; status: string }>('/inquiries', { category, title: json.title, content: json.content, relatedRequest: json.relatedRequest ? {type: json.relatedRequest.kind==='CONDITION'?'CONDITION':json.relatedRequest.appKind, id:Number(json.relatedRequest.id)} : null, ...(urls.length ? { attachmentUrls: urls } : {}) });
   return { id: toId(data.inquiryId) ?? '' };

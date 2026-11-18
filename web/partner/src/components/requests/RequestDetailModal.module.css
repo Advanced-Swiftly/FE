@@ -136,3 +136,9 @@
   font-weight: 600;
   color: var(--color-danger);
 }
+
+.sourceText {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

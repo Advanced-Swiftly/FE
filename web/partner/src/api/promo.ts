@@ -1,3 +1,4 @@
+import { adPeriodWeeks } from '@/utils/promo';
 import { MOCK_CONDITIONS } from '@/mocks/conditions';
 import { MOCK_APPLICATIONS, MOCK_EVENT_NOW, MOCK_EVENT_STATS, MOCK_EVENTS } from '@/mocks/promo';
 import { MOCK_REQUESTS } from '@/mocks/requests';
@@ -99,7 +100,7 @@ export interface ApplicationDto {
   status: RequestStatus;
   displayStatus?: RequestStatus;
   submittedAt: string;
-  ad?: { region: Area; startDate: string; weeks: number; endDate: string };
+  ad?: { region: Area; startDate: string; weeks: number | null; endDate: string };
   stampRoad?: {
     eventId: string;
     periodId: string;
@@ -331,17 +332,25 @@ export async function getEligibility(eventId: string, storeId: string): Promise<
 /** 이벤트 · 광고 신청 상세 응답 (API 문서: 이벤트 { applicationId, status, reviewComment } · 광고 { applicationId, status, creativeUrl }) */
 interface MyApplicationDetailDto { canEditPeriod?:boolean; applicationId?: RawId; status?: RequestStatus; reviewComment?: string | null; creativeUrl?: string | null; eventId?: RawId; storeId?: RawId; regionIds?: RawId[] | null; message?: string | null; adType?: string | null; startDate?: string | null; endDate?: string | null }
 
-function fromMyApplication(d: MyApplicationDetailDto, kind: 'EVENT' | 'AD', id: string): Application {
+/** 상세 응답에 없는 값을 신청 목록에서 이어받아요 (이벤트 신청 상세에는 eventId · storeId 가 없어요) */
+export interface ApplicationContext {
+  eventId?: string | null;
+  storeId?: string | null;
+}
+
+function fromMyApplication(d: MyApplicationDetailDto, kind: 'EVENT' | 'AD', id: string, context?: ApplicationContext): Application {
   const status = d.status ?? 'RECEIVED';
   return {
     id: toId(d.applicationId) ?? id,
     type: kind === 'AD' ? 'AD' : 'STAMP_ROAD',
-    storeId: toId(d.storeId) ?? '',
+    storeId: toId(d.storeId) ?? context?.storeId ?? '',
     storeName: '',
     status,
     submittedAt: '',
-    ad: kind === 'AD' && d.startDate && d.endDate ? { region: '' as never, startDate: d.startDate, weeks: 0, endDate: d.endDate } : undefined,
-    stampRoad: kind === 'EVENT' ? { eventId: toId(d.eventId) ?? '', periodId: '', title: '', period: EMPTY_RANGE, recruitment: EMPTY_RECRUIT, intro: d.message ?? '', qrPledgeAgreed: false, eligibilityAtSubmit: [], participation: null } : undefined,
+    adType: kind === 'AD' ? (d.adType ?? null) : null,
+    message: kind === 'AD' ? (d.message ?? null) : null,
+    ad: kind === 'AD' && d.startDate && d.endDate ? { region: '' as never, startDate: d.startDate, weeks: adPeriodWeeks(d.startDate, d.endDate), endDate: d.endDate } : undefined,
+    stampRoad: kind === 'EVENT' ? { eventId: toId(d.eventId) ?? context?.eventId ?? '', periodId: '', title: '', period: EMPTY_RANGE, recruitment: EMPTY_RECRUIT, intro: d.message ?? '', qrPledgeAgreed: false, eligibilityAtSubmit: [], participation: null } : undefined,
     history: [],
     rejectReason: d.reviewComment ?? null,
     // 취소 가능 여부 필드가 없어 BE 규칙(ApplicationStatus.isCancelable: 접수 · 보완 요청)대로 열어요
@@ -352,12 +361,21 @@ function fromMyApplication(d: MyApplicationDetailDto, kind: 'EVENT' | 'AD', id: 
   };
 }
 
-export async function getApplication(id: string, kind?: 'EVENT' | 'AD' | null): Promise<Application> {
+export async function getApplication(id: string, kind?: 'EVENT' | 'AD' | null, context?: ApplicationContext): Promise<Application> {
   if (!USE_MOCK) {
     // 이벤트 신청 상세 · 광고 신청 상세 — 종류를 모르면 짐작하지 않아요
     if (!kind) throw mockError('FIELD_NOT_SUPPORTED', { field: 'kind' });
     const { data } = await apiClient.get<MyApplicationDetailDto>(`/business/${kind === 'AD' ? 'ad' : 'event'}-applications/${enc(id)}`);
-    return fromMyApplication(data ?? {}, kind, id);
+    const app = fromMyApplication(data ?? {}, kind, id, context);
+    if (kind !== 'EVENT' || !app.stampRoad?.eventId || !app.storeId) return app;
+    // 이벤트 이름 · 기간은 신청의 이벤트 ID 와 매장 ID 로 찾아요. 못 찾으면 있는 값만 보여 줘요
+    const event = await getEvent(app.stampRoad.eventId, app.storeId).catch(() => null);
+    if (!event) return app;
+    return {
+      ...app,
+      canReapply: (app.status === 'REJECTED' || app.status === 'CANCELED') && event.canApply,
+      stampRoad: { ...app.stampRoad, periodId: event.periodId, title: event.title, period: event.period, recruitment: event.recruitment },
+    };
   }
   let dto: ApplicationDto;
   if (USE_MOCK) {
@@ -531,16 +549,21 @@ export async function cancelApplication(id: string, kind?: 'EVENT' | 'AD' | null
   await apiClient.post(`/business/applications/${enc(id)}/cancel`);
 }
 
-/** F-WAD-08 광고 기간 수정 (검토 시작 전) — 바꾼 값만 { startDate?, weeks? } */
-export async function updateAdPeriod(id: string, startDate: string, weeks: number): Promise<Application> {
+/**
+ * F-WAD-08 광고 기간 수정 (검토 시작 전) — 바꾼 값만 { startDate?, weeks? } 보내요.
+ * 시작일만 보내면 서버가 기존 일수를 그대로 유지하고, 주 수만 보내면 기존 시작일을 유지해요.
+ */
+export async function updateAdPeriod(id: string, change: { startDate?: string; weeks?: number }): Promise<Application> {
   let dto: ApplicationDto;
   if (USE_MOCK) {
     const app = MOCK_APPLICATIONS.find((a) => a.applicationId === id && a.type === 'AD');
     if (!app?.ad || !app.canEditPeriod) throw mockError('REQUEST_NOT_EDITABLE');
+    const startDate = change.startDate ?? app.ad.startDate;
+    const weeks = change.weeks ?? app.ad.weeks ?? 1;
     app.ad = { ...app.ad, startDate, weeks, endDate: endDateOf(startDate, weeks) };
     dto = await mockResponse(app);
   } else {
-    dto = (await apiClient.patch<ApplicationDto>(`/business/applications/${enc(id)}`, { startDate, weeks })).data;
+    dto = (await apiClient.patch<ApplicationDto>(`/business/applications/${enc(id)}`, change)).data;
   }
   return toApplication(dto);
 }

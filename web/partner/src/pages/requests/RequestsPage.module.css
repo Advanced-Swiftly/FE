@@ -118,3 +118,10 @@
   justify-content: center;
   padding: var(--space-4);
 }
+
+.text .subNote {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}

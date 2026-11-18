@@ -1,3 +1,4 @@
+import { getMyStores } from './stores';
 import { MOCK_ACCOUNT, MOCK_TERMS, MOCK_VERIFICATIONS } from '@/mocks/inquiries';
 import { BUSINESS_CATEGORY_LABEL, type Account, type BusinessCategory, type BusinessLookup, type SignupStatus, type Term } from '@/types';
 import { apiClient, mockResponse, USE_MOCK } from './client';
@@ -488,7 +489,16 @@ export async function getVerifications(): Promise<SignupStatus[]> {
 export async function getAccount(): Promise<Account> {
   const loginId = getSession()?.loginId ?? '';
   if (USE_MOCK) return mockResponse({ ...MOCK_ACCOUNT, loginId: loginId || MOCK_ACCOUNT.loginId });
-  const { data } = await apiClient.get<MeDto>('/users/me');
+  // 업체 목록 · 인증 요청을 못 불러와도 계정 정보는 보여 주고, 해당 칸만 '확인할 수 없어요'로 둬요 (0건으로 채우지 않아요)
+  const [{ data }, linked, verifications] = await Promise.all([
+    apiClient.get<MeDto>('/users/me'),
+    getMyStores().catch(() => null),
+    apiClient
+      .get<{ items?: { status?: string | null }[] | null }>('/business/verifications')
+      .then((r) => r.data?.items ?? [])
+      .catch(() => null),
+  ]);
+  const countOf = (...statuses: string[]) => (verifications ?? []).filter((v) => statuses.includes(v.status ?? '')).length;
   const counts = data.placeCounts;
   return {
     name: data.name ?? '',
@@ -496,6 +506,8 @@ export async function getAccount(): Promise<Account> {
     phone: data.phoneNumber ?? data.phone ?? '',
     // 연결된 업체 수는 이 응답의 예시에 없어요. 오면 쓰고, 없으면 null (0 으로 채우지 않아요)
     stores: counts ? { total: counts.approved + counts.pending, approved: counts.approved, pending: counts.pending } : null,
+    storeLinks: linked ? linked.map((s) => ({ id: s.id, name: s.name, visibility: s.visibility ?? null })) : null,
+    verificationCounts: verifications ? { approved: countOf('APPROVED'), inReview: countOf('RECEIVED', 'IN_REVIEW'), needsInfo: countOf('NEEDS_SUPPLEMENT', 'NEEDS_INFO'), rejected: countOf('REJECTED') } : null,
   };
 }
 

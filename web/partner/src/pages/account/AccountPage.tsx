@@ -61,7 +61,12 @@ export function AccountPage() {
                   { label: '이름', value: a.name },
                   { label: '아이디 (이메일)', value: a.loginId },
                   { label: '연락처', value: a.phone },
-                  { label: '연결된 업체', value: a.stores ? `${a.stores.total}곳 · 인증 완료 ${a.stores.approved} · 승인 대기 ${a.stores.pending}` : '확인 필요 (계정 정보 응답에 없어요)' },
+                  ...(a.storeLinks === undefined
+                    ? [{ label: '연결된 업체', value: a.stores ? `${a.stores.total}곳 · 인증 완료 ${a.stores.approved} · 승인 대기 ${a.stores.pending}` : '확인할 수 없어요' }]
+                    : [
+                        { label: '연결된 업체', value: <StoreLinks stores={a.storeLinks} /> },
+                        { label: '사업자 인증 요청', value: verificationText(a.verificationCounts) },
+                      ]),
                   {
                     label: '비밀번호',
                     value: (
@@ -94,6 +99,28 @@ export function AccountPage() {
       )}
     </div>
   );
+}
+
+const VISIBILITY_LABEL: Record<string, string> = { VISIBLE: '지도 노출 중', HIDDEN: '지도 미노출' };
+
+/** 연결 여부와 지도 노출만 보여 줘요. 입점 승인 상태는 서버 응답에 없어 완료로 표시하지 않아요 */
+function StoreLinks({ stores }: { stores: NonNullable<Account['storeLinks']> | null }) {
+  if (stores === null) return <>확인할 수 없어요</>;
+  if (stores.length === 0) return <>연결된 업체가 없어요</>;
+  return (
+    <>
+      {stores.map((s) => (
+        <span key={s.id} style={{ display: 'block' }}>
+          {s.name} · {(s.visibility && VISIBILITY_LABEL[s.visibility]) ?? '노출 상태 확인 불가'}
+        </span>
+      ))}
+    </>
+  );
+}
+
+function verificationText(c: Account['verificationCounts']) {
+  if (!c) return '확인할 수 없어요';
+  return `승인 ${c.approved}건 · 심사 중 ${c.inReview}건 · 보완 필요 ${c.needsInfo}건 · 반려 ${c.rejected}건`;
 }
 
 function EditForm({ account, onCancel, onDone }: { account: Account; onCancel: () => void; onDone: () => void }) {

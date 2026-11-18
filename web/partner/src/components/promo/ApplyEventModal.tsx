@@ -21,7 +21,7 @@ interface Props {
   eventId: string;
   onClose: () => void;
   onBack: () => void;
-  onDone: (applicationId: string) => void;
+  onDone: (applicationId: string, storeId: string) => void;
 }
 
 /** 확인일 30일 조건 설명 (없음 · 미래 날짜는 미충족) — 명세 7.6.2 UI-W-015 ② */
@@ -43,8 +43,8 @@ export function ApplyEventModal({ eventId, onClose, onBack, onDone }: Props) {
   const applicable = (ev.data?.applicablePlaces ?? []).map((p) => ({ id: p.placeId, name: stores.find((s) => s.id === p.placeId)?.name ?? p.name }));
   const [storeId, setStoreId] = useState(current.id);
   const selectedId = applicable.some((s) => s.id === storeId) ? storeId : applicable[0]?.id;
-  // 참여 자격 조회는 백엔드 API 문서에 없어 서버 모드에서는 부르지 않아요 (신청할 때 서버가 확인)
-  const elig = useFetch(`elig:${eventId}:${selectedId ?? 'none'}:${USE_MOCK}`, () => (!USE_MOCK ? Promise.resolve(null) : selectedId ? getEligibility(eventId, selectedId) : Promise.reject(new Error('신청할 수 있는 매장이 없어요.'))));
+  // 참여 조건 사전 확인 — 조회에 실패하면 조건을 알 수 없으니 신청 버튼을 열지 않아요 (신청 때 서버가 한 번 더 검사해요)
+  const elig = useFetch(`elig:${eventId}:${selectedId ?? 'none'}`, () => (selectedId ? getEligibility(eventId, selectedId) : Promise.resolve(null)));
   // 참여 희망 지역 (이벤트 상세의 regions) — 처음엔 모두 고른 상태
   const regionOptions = ev.data?.regionOptions ?? [];
   const [regionPick, setRegionPick] = useState<string[] | null>(null);
@@ -55,13 +55,15 @@ export function ApplyEventModal({ eventId, onClose, onBack, onDone }: Props) {
 
   const e = elig.data;
   const introOk = intro.trim().length >= 1 && intro.length <= INTRO_MAX;
-  const allowed = USE_MOCK ? e?.canApply === true : ev.data?.canApply === true && pickedRegions.length > 0;
+  const allowed = e?.canApply === true && (USE_MOCK || pickedRegions.length > 0);
   const canSubmit = Boolean(selectedId) && allowed && introOk && pledge && !submit.pending;
 
   const onSubmit = async () => {
     if (!canSubmit || !selectedId) return;
     const res = await submit.run({ eventId, storeId: selectedId, intro: intro.trim(), qrPledgeAgreed: true, regionIds: pickedRegions });
-    if (res.ok) onDone(res.data.id);
+    if (res.ok) onDone(res.data.id, selectedId);
+    // 그사이 조건이 바뀌었을 수 있어 다시 확인해요
+    else elig.reload();
   };
 
   return (
@@ -101,6 +103,20 @@ export function ApplyEventModal({ eventId, onClose, onBack, onDone }: Props) {
             )}
           </Field>
 
+          {selectedId && elig.status === 'loading' && <p className={styles.muted}>참여 조건을 확인하고 있어요…</p>}
+          {elig.status === 'error' && (
+            <Notice
+              tone="danger"
+              role="alert"
+              action={
+                <Button variant="secondary" size="sm" onClick={elig.reload}>
+                  다시 확인
+                </Button>
+              }
+            >
+              참여 조건을 확인하지 못해 지금은 신청할 수 없어요.
+            </Notice>
+          )}
           {e && (
             <div className={styles.checkBox}>
               <strong>참여 조건 확인 · {formatDate(e.baseDate)} 기준</strong>
@@ -132,9 +148,7 @@ export function ApplyEventModal({ eventId, onClose, onBack, onDone }: Props) {
               ))}
             </fieldset>
           )}
-          {!USE_MOCK && <Notice tone="info">참여 조건은 신청할 때 서버가 확인해요.</Notice>}
-          {!USE_MOCK && ev.data.applyBlockedReason === 'ALREADY_APPLIED' && <Notice tone="warning">이미 이 이벤트에 신청한 매장이에요.</Notice>}
-          {!USE_MOCK && ev.data.applyBlockedReason === 'NOT_RECRUITING' && <Notice tone="warning">지금은 참여 신청 기간이 아니에요.</Notice>}
+          {e?.canApply && <Notice tone="success">참여 조건을 모두 충족했어요. 내용을 적고 신청해 주세요.</Notice>}
           {e && !e.recruitmentOpen && <Notice tone="warning">지금은 참여 신청 기간이 아니에요.</Notice>}
           {e?.existingApplication && <Notice tone="warning">이미 이 분기에 신청한 매장이에요.</Notice>}
           {e && e.recruitmentOpen && !e.existingApplication && !e.allPassed && <Notice tone="warning">참여 조건을 확인해 주세요. 조건이 맞아야 신청할 수 있어요.</Notice>}
