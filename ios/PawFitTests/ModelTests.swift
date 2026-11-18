@@ -67,6 +67,21 @@ final class ModelTests: XCTestCase {
         XCTAssertTrue(rows.allSatisfy { $0.results.allSatisfy { $0 == .unknown } })
     }
 
+    func testConfirmedAdmissionDoesNotInventMissingConditions() {
+        var place = detail(reasons: ["POLICY_DETAILS_UNCONFIRMED"])
+        place.admissionConfirmed = true
+        place.policyDetailsComplete = false
+        place.maxWeightKg = 7
+        place.maxWeightExclusive = true
+        let dog = DogBasisInfo(dogId: 2, name: "콩이", weightKg: 7, equipment: [], vaccinationVerified: true)
+        let rows = ConditionTable.rows(detail: place, dogs: [dog], judgments: [2: [.weightExceeded]])
+        XCTAssertEqual(rows.first?.placeRule, "가능")
+        XCTAssertEqual(rows.first { $0.label == "체중" }?.placeRule, "7kg 미만")
+        XCTAssertEqual(rows.first { $0.label == "체중" }?.results, [.denied("7kg")])
+        XCTAssertEqual(rows.first { $0.label == "예방접종" }?.results, [.unknown])
+        XCTAssertFalse(rows.contains { $0.placeRule == "제한 없음" || $0.placeRule == "필요 없음" })
+    }
+
     // MARK: 목업 판정 (서버 규칙과 같아야 함)
 
     func testMockJudgment() async throws {
