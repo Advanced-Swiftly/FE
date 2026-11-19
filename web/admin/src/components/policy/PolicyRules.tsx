@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { CODE_RE, diffConditions, KNOWN_CODE_LABEL, RULE_GROUP_LABEL, RULE_GROUPS, type PolicyRule, type RuleGroup, type RuleSet, type EntryConditions, type AreaPolicy } from '@/api/policy';
 import { Button } from '@/components/common/Button';
 import { Choice, InputRow, Select, TextInput } from '@/components/common/Field';
@@ -18,7 +18,7 @@ const REQ_TEXT: Record<RuleGroup, [string, string]> = {
 };
 
 /** 읽기 전용 정책 표 */
-export function PolicyRulesView({ rules, breeds, compareTo, hideConditions = false }: { rules: RuleSet; breeds: Map<string, string>; compareTo?: RuleSet; hideConditions?: boolean }) {
+export function PolicyRulesView({ rules, breeds, compareTo, hideConditions = false, indoorAction }: { rules: RuleSet; breeds: Map<string, string>; compareTo?: RuleSet; hideConditions?: boolean; indoorAction?: ReactNode }) {
   return (
     <dl className={styles.groups}>
       {rules.conditions && !hideConditions && <>
@@ -27,6 +27,7 @@ export function PolicyRulesView({ rules, breeds, compareTo, hideConditions = fal
           const r = rules.conditions?.[area];
           return <div className={styles.group} key={area}><dt>{area === 'indoor' ? '실내' : '야외 테라스'}</dt><dd>
             {!r || r.allowed === false ? '이용 불가' : `${r.maxWeightKg ? `${r.maxWeightKg}kg 이하` : '체중 제한 없음'} · ${r.equipmentCodes.map(c => KNOWN_CODE_LABEL[c] ?? c).join(', ') || '준비물 제한 없음'}`}
+            {area === 'indoor' && indoorAction && <div>{indoorAction}</div>}
           </dd></div>;
         })}
         <div className={styles.group}><dt>적용 시작일</dt><dd>{rules.conditions.effectiveFrom ?? '승인일부터'}</dd></div>
@@ -162,6 +163,9 @@ function AreaConditionsEditor({value,requiredEquipment,onChange}:{value?:EntryCo
   const c=value ?? {petsAllowed:true,indoor:{allowed:true,maxWeightKg:null,equipmentCodes:requiredEquipment},outdoor:{allowed:false,equipmentCodes:requiredEquipment}};
   const set=(patch:Partial<EntryConditions>)=>onChange({...c,...patch});
   const area=(key:'indoor'|'outdoor',patch:Partial<AreaPolicy>)=>set({[key]:{allowed:true,equipmentCodes:[],...c[key],...patch}});
+  // 실내 제한을 넘는 반려견이 야외를 쓸 수 있는지 — 별도 필드 없이 야외 구역 조건으로 저장해요
+  const indoorLimit=c.indoor?.allowed ? c.indoor.maxWeightKg : null;
+  const outdoorForOverLimit=c.outdoor?.allowed===true && (!c.outdoor.maxWeightKg || (indoorLimit!=null && c.outdoor.maxWeightKg>indoorLimit));
   return <fieldset className={styles.group}>
     <legend>이용 구역·체중·적용일</legend>
     <Choice type="checkbox" label="반려견 동반 가능" checked={c.petsAllowed!==false} onChange={e=>set({petsAllowed:e.target.checked})}/>
@@ -169,11 +173,16 @@ function AreaConditionsEditor({value,requiredEquipment,onChange}:{value?:EntryCo
       <Choice type="checkbox" label={key==='indoor'?'실내 이용 가능':'야외 테라스 이용 가능'} checked={c[key]?.allowed===true} onChange={e=>area(key,{allowed:e.target.checked})}/>
       {c[key]?.allowed && <>
         <label>{key==='indoor'?'실내':'야외'} 최대 체중 (비우면 제한 없음)
-          <TextInput type="number" min="0.01" max="9999.99" step="0.01" value={c[key]?.maxWeightKg ?? ''} onChange={e=>area(key,{maxWeightKg:e.target.value ? Number(e.target.value):null})}/>
+          <TextInput id={`area-${key}-weight`} type="number" min="0.01" max="9999.99" step="0.01" value={c[key]?.maxWeightKg ?? ''} onChange={e=>area(key,{maxWeightKg:e.target.value ? Number(e.target.value):null})}/>
         </label>
         {[...new Set([...AREA_EQUIPMENT,...(c[key]?.equipmentCodes ?? [])])].map(code=><Choice key={code} type="checkbox" label={`${KNOWN_CODE_LABEL[code] ?? code} 필수`} checked={c[key]?.equipmentCodes.includes(code) ?? false} onChange={e=>area(key,{equipmentCodes:e.target.checked ? [...(c[key]?.equipmentCodes ?? []),code]:(c[key]?.equipmentCodes ?? []).filter(x=>x!==code)})}/>)}
       </>}
     </div>)}
+    {indoorLimit ? <div role="radiogroup" aria-label="실내 제한 체중을 넘는 반려견">
+      <strong>실내 제한 체중을 넘는 반려견</strong>
+      <Choice type="radio" name="over-limit" label="입장 불가" checked={!outdoorForOverLimit} onChange={()=>area('outdoor',{allowed:false})}/>
+      <Choice type="radio" name="over-limit" label="야외 테라스만 이용 가능" checked={outdoorForOverLimit} onChange={()=>area('outdoor',{allowed:true,maxWeightKg:null})}/>
+    </div> : null}
     <label>적용 시작일<TextInput type="date" value={c.effectiveFrom ?? ''} onChange={e=>set({effectiveFrom:e.target.value||null})}/></label>
     <label>공지 문장<TextInput maxLength={500} value={c.notice ?? ''} onChange={e=>set({notice:e.target.value})}/></label>
     <label>변경 사유<TextInput maxLength={500} value={c.changeReason ?? ''} onChange={e=>set({changeReason:e.target.value})}/></label>

@@ -149,6 +149,27 @@ function RequestDetailBody({ requestId, onClose, onChanged }: { requestId: strin
                 {d.sourceText}
               </p>
             )}
+            {d.requestNote?.effectiveFrom && (
+              <p className={styles.sourceText}>
+                <strong>적용 시작일</strong>
+                <br />
+                {d.requestNote.effectiveFrom}
+              </p>
+            )}
+            {d.requestNote?.notice && (
+              <p className={styles.sourceText}>
+                <strong>공지 문장</strong>
+                <br />
+                {d.requestNote.notice}
+              </p>
+            )}
+            {d.requestNote?.changeReason && (
+              <p className={styles.sourceText}>
+                <strong>변경 사유</strong>
+                <br />
+                {d.requestNote.changeReason}
+              </p>
+            )}
             {d.changes.map((ch) => (
               <div key={ch.field} className={styles.changeRow}>
                 <span className={styles.changeLabel}>{CONDITION_LABEL[ch.field]}</span>

@@ -15,7 +15,7 @@ export const MOCK_REQUEST_DETAILS: Record<string, ConditionRequestDetailDto> = {
     latestConditionsVersion: 7,
     baseChanged: false,
     changes: [
-      { field: 'weightLimitKg', currentValue: 7, currentUnrestricted: false, latestValue: 7, latestUnrestricted: false, requestedValue: 10, requestedUnrestricted: false },
+      { field: 'sizeLimit', currentValue: null, currentUnrestricted: true, latestValue: null, latestUnrestricted: true, requestedValue: 'MEDIUM', requestedUnrestricted: false },
     ],
     evidences: [
       { kind: 'FILE', fileName: 'instagram_공지_1020.png', url: SAMPLE_FILE },
@@ -61,7 +61,7 @@ export const MOCK_REQUEST_DETAILS: Record<string, ConditionRequestDetailDto> = {
     latestConditionsVersion: 7,
     baseChanged: true,
     changes: [
-      { field: 'requiredItems', currentValue: ['STROLLER'], currentUnrestricted: false, latestValue: ['STROLLER', 'MANNER_BELT'], latestUnrestricted: false, requestedValue: ['STROLLER', 'MANNER_BELT'], requestedUnrestricted: false },
+      { field: 'requiredItems', currentValue: ['STROLLER'], currentUnrestricted: false, latestValue: ['STROLLER', 'LEASH'], latestUnrestricted: false, requestedValue: ['STROLLER', 'LEASH'], requestedUnrestricted: false },
     ],
     evidences: [{ kind: 'FILE', fileName: '매장_공지_0912.png', url: SAMPLE_FILE }],
     reason: null,

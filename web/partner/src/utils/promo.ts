@@ -14,6 +14,7 @@ export const BLOCKED_LABEL: Record<ApplyBlockedReason, string> = {
   OUT_OF_REGION: '이 매장은 행사 대상 지역 밖에 있어요',
   ALREADY_APPLIED: '이미 이 분기에 신청한 매장이에요',
   ALREADY_PARTICIPATING: '이 분기에 이미 참여 중이에요',
+  CHECK_FAILED: '아직 충족하지 못한 참여 조건이 있어요. 참여 신청에서 항목별 결과를 확인해 주세요',
 };
 
 /** 신청 · 승인 때 서버 오류 코드 → 화면 문구 (명세 F-WAD-04) */

@@ -17,15 +17,15 @@ export const CONDITION_LABEL: Record<ConditionField, string> = {
 };
 
 export const SIZE_LABEL: Record<SizeLimit, string> = { SMALL: '소형견까지', MEDIUM: '중형견까지', LARGE: '대형견까지' };
-export const AREA_LABEL: Record<AreaRule, string> = { INDOOR_OK: '실내 · 야외 모두', OUTDOOR_ONLY: '야외만' };
-export const ITEM_LABEL: Record<Item, string> = { STROLLER: '유모차', CARRIER: '이동장', MANNER_BELT: '매너벨트', MUZZLE: '입마개' };
+export const AREA_LABEL: Record<AreaRule, string> = { INDOOR_OK: '실내 · 야외 모두', OUTDOOR_ONLY: '야외만', OVER_LIMIT_OUTDOOR: '체중 초과 시 야외 테라스만' };
+export const ITEM_LABEL: Record<Item, string> = { STROLLER: '유모차', CARRIER: '이동장', LEASH: '리드줄', MUZZLE: '입마개' };
 
 /** '제한 없음' 일 때 문구 */
 const UNRESTRICTED_LABEL: Record<UnrestrictableField, string> = {
   weightLimitKg: '체중 제한 없음',
   sizeLimit: '크기 제한 없음',
   restrictedBreeds: '견종 제한 없음',
-  area: '구역 제한 없음',
+  area: '실내 · 야외 모두',
   requiredItems: '준비물 없음',
 };
 
@@ -85,11 +85,12 @@ export function judge(state: ConditionState, dog: SampleDog): Judgment {
   const SIZE_RANK: Record<SizeLimit, number> = { SMALL: 1, MEDIUM: 2, LARGE: 3 };
 
   if (c.petAllowed === false) return JUDGMENT.NO_ENTRY;
-  if (st('weightLimitKg') === 'LIMITED' && dog.weightKg > (c.weightLimitKg as number)) return JUDGMENT.NO_ENTRY;
+  if (st('weightLimitKg') === 'LIMITED' && dog.weightKg > (c.weightLimitKg as number) && c.area !== 'OVER_LIMIT_OUTDOOR') return JUDGMENT.NO_ENTRY;
   if (st('sizeLimit') === 'LIMITED' && SIZE_RANK[dog.size] > SIZE_RANK[c.sizeLimit as SizeLimit]) return JUDGMENT.NO_ENTRY;
   if (st('restrictedBreeds') === 'LIMITED' && (c.restrictedBreeds as string[]).includes(dog.breed)) return JUDGMENT.NO_ENTRY;
 
-  const unknown = CONDITION_FIELDS.some((f) => f !== 'area' && st(f) === 'UNKNOWN');
+  // 접종을 확인한 반려견은 예방접종 조건이 미확인이어도 판정에 영향을 받지 않아요
+  const unknown = CONDITION_FIELDS.some((f) => f !== 'area' && !(f === 'vaccinationRequired' && dog.vaccinated) && st(f) === 'UNKNOWN');
   if (unknown) return JUDGMENT.UNKNOWN;
 
   const missingItems = st('requiredItems') === 'LIMITED' && (c.requiredItems as Item[]).some((i) => !dog.items.includes(i));

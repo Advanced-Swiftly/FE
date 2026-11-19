@@ -1,4 +1,7 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
+import { Icon } from '@/components/common/Icon';
+import { JudgmentChip } from '@/components/common/JudgmentChip';
+import type { Judgment } from '@/constants/status';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { previewPolicy, createPolicyRequest, getBreedNames, getStorePolicy, resubmitPolicyRequest, sameRules, type RuleSet, type StorePolicy } from '@/api/policy';
 import { uploadFile } from '@/api/files';
@@ -20,6 +23,8 @@ import page from '@/styles/page.module.css';
 import type { ConditionRequestDetail } from '@/types';
 
 const URL_RE = /^(https?:\/\/\S+|\/api\/v1\/files\/[0-9a-f-]{36})$/i;
+/** 서버 판정값 → 화면 판정 표시 */
+const VERDICT: Record<string, Judgment> = { ENTRY_OK: 'ENTRY_OK', PREPARE: 'PREPARE', CHECK_REQUIRED: 'UNKNOWN', ENTRY_DENIED: 'NO_ENTRY' };
 const SCOPE_NOTE = '실내·야외 조건과 적용 시작일을 확인해 주세요. 운영자 승인 전까지 기존 조건이 유지돼요.';
 
 /** 서버 모드 UI-W-009 입장 조건 현황 — GET /business/stores/{storeId}/policy */
@@ -73,7 +78,7 @@ export function ServerConditionsPage() {
       <LoadState status={policy.status} errorText={policy.error?.message} onRetry={policy.reload} />
       {policy.data && (
         <Card title="현재 입장 조건" aside={policy.data.exists ? `정책 버전 ${policy.data.version}` : '아직 등록된 정책 없음'}>
-          {policy.data.exists ? <PolicyRulesView rules={policy.data} breeds={breeds.data ?? new Map()} /> : <p className={page.muted}>아직 운영자가 확인한 입장 정책이 없어요. 변경 요청으로 처음 정책을 보낼 수 있어요.</p>}
+          {policy.data.exists ? <PolicyRulesView rules={policy.data} breeds={breeds.data ?? new Map()} indoorAction={policy.data.conditions?.indoor?.allowed ? <ButtonLink to="/conditions/edit?item=weight" variant="secondary" size="sm">체중 제한 수정 요청</ButtonLink> : undefined} /> : <p className={page.muted}>아직 운영자가 확인한 입장 정책이 없어요. 변경 요청으로 처음 정책을 보낼 수 있어요.</p>}
           {breeds.status === 'error' && <p className={page.muted}>견종 이름을 불러오지 못해 견종 ID 로 보여 줘요.</p>}
           <div className={page.actionsBetween}>
             <span />
@@ -133,8 +138,22 @@ function EditForm({ policy, breeds, request, onReload }: { policy: StorePolicy; 
   const [uploading,setUploading] = useState(false);
   const [uploadError,setUploadError] = useState<string|null>(null);
   const [tried, setTried] = useState(false);
-  const preview=useFetch(`policy-preview:${store.id}:${JSON.stringify(draft)}`,()=>previewPolicy(store.id,draft));
-  const verdictLabel:Record<string,string>={ENTRY_OK:'입장 가능',PREPARE:'준비 필요',CHECK_REQUIRED:'정보 확인 필요',ENTRY_DENIED:'입장 불가'};
+  // 입력이 멈춘 뒤에 판정을 다시 불러와요 (글자마다 서버를 부르지 않게)
+  const [previewDraft, setPreviewDraft] = useState(draft);
+  useEffect(() => {
+    const t = setTimeout(() => setPreviewDraft(draft), 400);
+    return () => clearTimeout(t);
+  }, [draft]);
+  const preview=useFetch(`policy-preview:${store.id}:${JSON.stringify(previewDraft)}`,()=>previewPolicy(store.id,previewDraft));
+  // 체중 제한의 [수정 요청]으로 들어오면 실내 체중 입력칸으로 바로 이동해요
+  const [params] = useSearchParams();
+  const focusItem = params.get('item');
+  useEffect(() => {
+    if (focusItem !== 'weight') return;
+    const el = document.getElementById('area-indoor-weight');
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el?.focus({ preventScroll: true });
+  }, [focusItem]);
   const create = useAction(createPolicyRequest);
   const re = useAction(resubmitPolicyRequest);
   const action = resubmit ? re : create;
@@ -183,10 +202,36 @@ function EditForm({ policy, breeds, request, onReload }: { policy: StorePolicy; 
           </>
         )}
       </Card>
-      {preview.data && <Card title="변경 후 입장 예시"><p>{preview.data.example}</p>
-        <p>{verdictLabel[preview.data.before] ?? preview.data.before} → {verdictLabel[preview.data.after] ?? preview.data.after}</p>
-        <p>운영자 승인 후 적용 시작일부터 반영돼요.</p>
-      </Card>}
+      <Card title="변경 후 입장 예시" aside="승인되면">
+        {preview.status === 'loading' && <p className={page.muted}>입장 판정을 계산하고 있어요…</p>}
+        {preview.status === 'error' && (
+          <Notice
+            tone="warning"
+            action={
+              <Button variant="secondary" size="sm" onClick={preview.reload}>
+                다시 계산
+              </Button>
+            }
+          >
+            입장 예시를 불러오지 못했어요.
+          </Notice>
+        )}
+        {preview.data && (
+          <>
+            <p>
+              <strong>{preview.data.example}</strong>
+            </p>
+            <p style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+              <span>변경 전</span>
+              <JudgmentChip judgment={VERDICT[preview.data.before] ?? 'UNKNOWN'} />
+              <Icon name="arrowRight" size={16} />
+              <span>변경 후</span>
+              <JudgmentChip judgment={VERDICT[preview.data.after] ?? 'UNKNOWN'} />
+            </p>
+            <p className={page.muted}>{preview.data.before === preview.data.after ? '이 변경으로 예시 반려견의 판정은 달라지지 않아요.' : '운영자 승인 후 적용 시작일부터 반영돼요.'}</p>
+          </>
+        )}
+      </Card>
       <Card title="근거">
         <label>근거 파일 추가
           <input type="file" accept="image/png,image/jpeg,image/webp,application/pdf" multiple disabled={uploading} onChange={async e=>{

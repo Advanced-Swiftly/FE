@@ -175,6 +175,8 @@ export async function getRequestPage(storeId: string, opts: { type?: RequestType
 // ─── F-WREQ-04 요청 상세 ─────────────────────────────
 
 export interface ConditionRequestDetailDto {
+  /** 목업 요청의 적용 시작일 · 공지 문장 · 변경 사유 */
+  requestNote?: import('@/types').ConditionRequestNote;
   /** 문자('REQ-0131') · 숫자(1301) 모두 받아요 */
   requestId: RawId;
   /** 매장 ID — 이전 명세 placeId · API 문서 storeId */
@@ -223,7 +225,7 @@ export function toRequestDetail(d: ConditionRequestDetailDto): ConditionRequestD
     // 상세 응답 예시는 { requestId, status, reviewComment } 뿐이라 없는 목록은 빈 값, 가능 여부는 열지 않는 쪽으로 받아요
     changes: (d.changes ?? []).map((c) => ({ ...c, field: c.field as ConditionField })),
     evidences: (d.evidences ?? d.evidenceUrls?.map(url => ({kind: 'FILE' as const, url} as const)) ?? []).map(toAttachment),
-    sourceText: d.sourceText, requestedPolicy: d.requestedPolicy,
+    sourceText: d.sourceText, requestedPolicy: d.requestedPolicy, requestNote: d.requestNote,
     reason: d.reason ?? d.reviewComment ?? null,
     history: d.history ?? [],
     // 가능 여부가 응답에 없으면 BE 규칙대로 정해요 (ConditionRequest.canCancel: 접수 · 보완 요청 / canResubmit: 보완 요청)

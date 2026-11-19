@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { getEventStats } from '@/api/promo';
+import { getEvent, getEventStats } from '@/api/promo';
 import { Button, ButtonLink } from '@/components/common/Button';
 import { KpiCard } from '@/components/common/KpiCard';
 import { LoadState } from '@/components/common/LoadState';
@@ -21,6 +21,7 @@ export function EventStatsModal({ eventId, onClose }: { eventId: string; onClose
   // 처음엔 month 없이 불러 서버 기본 월(selectedMonth)을 쓰고, 달을 바꾸면 month 를 보내 다시 불러요 (F-WAD-09)
   const [month, setMonth] = useState<string | undefined>(undefined);
   const stats = useFetch(`event-stats:${eventId}:${store.id}:${month ?? 'default'}`, () => getEventStats(eventId, store.id, month));
+  const event = useFetch(`event:${eventId}:${store.id}`, () => getEvent(eventId, store.id));
   const s = stats.data;
   const selected = s?.months.find((m) => m.month === s.selectedMonth);
 
@@ -29,7 +30,7 @@ export function EventStatsModal({ eventId, onClose }: { eventId: string; onClose
       open
       onClose={onClose}
       width={680}
-      title={s?.periodId ? `${s.periodId} 댕댕로드 이벤트 통계` : '댕댕로드 이벤트 통계'}
+      title={event.data?.title ? `${event.data.title} 이벤트 통계` : '이벤트 통계'}
       kicker={s ? `이벤트 통계 · ${store.name}${s.periodId ? ` · ${s.periodId}` : ''}` : undefined}
       footer={
         <>
