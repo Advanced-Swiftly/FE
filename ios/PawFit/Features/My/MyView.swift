@@ -146,7 +146,7 @@ struct MyView: View {
 
     private func roadCard(_ event: CurrentEvent) -> some View {
         let count = stamps?.stampCount ?? 0
-        let max = stamps?.maxStampCount ?? 10
+        let max = stamps?.maxStampCount ?? 6
         return NavigationLink(value: MyRoute.road) {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 8) {
@@ -246,7 +246,7 @@ struct ProgressBar: View {
 }
 
 enum RoadText {
-    /// "성수 댕댕로드 10곳 방문하기" → "성수"
+    /// "성수 댕댕로드 6곳 방문하기" → "성수"
     static func region(_ title: String) -> String {
         title.components(separatedBy: " 댕댕로드").first.flatMap { $0.isEmpty ? nil : $0 } ?? "댕댕로드"
     }

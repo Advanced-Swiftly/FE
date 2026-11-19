@@ -355,11 +355,11 @@ actor MockPawFitAPI: PawFitAPI {
     // MARK: - 댕댕로드
 
     func currentEvent() async throws -> CurrentEvent? {
-        await pause(); return CurrentEvent(eventId: 7, title: "성수 댕댕로드 10곳 방문하기", year: 2026, quarter: 4, status: .open)
+        await pause(); return CurrentEvent(eventId: 7, title: "성수 댕댕로드 6곳 방문하기", year: 2026, quarter: 4, status: .open)
     }
     func event(_ id: Int64) async throws -> EventDetail {
         await pause()
-        return EventDetail(eventId: 7, title: "성수 댕댕로드 10곳 방문하기", startsOn: "2026-10-01", endsOn: "2026-12-31",
+        return EventDetail(eventId: 7, title: "성수 댕댕로드 6곳 방문하기", startsOn: "2026-10-01", endsOn: "2026-12-31",
                            regions: [11], prizes: [.init(rank: 1, name: "강아지 유모차", quantity: 1),
                                                    .init(rank: 2, name: "하네스", quantity: 5),
                                                    .init(rank: 3, name: "반려견 의류 쿠폰", quantity: 20),
@@ -368,7 +368,7 @@ actor MockPawFitAPI: PawFitAPI {
     }
     func stamps(eventId: Int64) async throws -> StampStatus {
         await pause()
-        return StampStatus(eventId: 7, stampCount: stampStores.count, maxStampCount: 10,
+        return StampStatus(eventId: 7, stampCount: stampStores.count, maxStampCount: 6,
                            stores: stampStores.map { .init(storeId: $0, awarded: true) })
     }
     func eventStores(eventId: Int64) async throws -> [EventStore] {
@@ -380,7 +380,7 @@ actor MockPawFitAPI: PawFitAPI {
     func visitQR(token: String, dogIds: [Int64]) async throws -> QRVisitResult {
         await pause()
         let next = Int64(101 + stampStores.count)
-        let awarded = stampStores.count < 10 && !stampStores.contains(next)
+        let awarded = stampStores.count < 6 && !stampStores.contains(next)
         if awarded {
             stampStores.append(next)
             let stores = try await eventStores(eventId: 7)
@@ -392,14 +392,14 @@ actor MockPawFitAPI: PawFitAPI {
     }
     func enterDraw(eventId: Int64, _ r: DrawEntryRequest) async throws -> DrawEntryCreated {
         await pause()
-        guard stampStores.count >= 10 else { throw APIError.server(code: .unknown("INSUFFICIENT_STAMPS"), status: 400, field: nil) }
+        guard stampStores.count >= 6 else { throw APIError.server(code: .unknown("INSUFFICIENT_STAMPS"), status: 400, field: nil) }
         entered = DrawEntry(drawEntryId: 1, status: .entered, prize: nil)
         return DrawEntryCreated(drawEntryId: 1, status: .entered, stampCount: stampStores.count)
     }
     func drawEntry(eventId: Int64) async throws -> DrawEntry? { await pause(); return entered }
 
-    /// 목업 전용: 시연에서 10곳을 바로 채워 응모 화면을 보여 줄 때
-    func fillStamps() { stampStores = Array(101...110) }
+    /// 목업 전용: 시연에서 6곳을 바로 채워 응모 화면을 보여 줄 때
+    func fillStamps() { stampStores = Array(101...106) }
 
     // MARK: - 회원가입
 
