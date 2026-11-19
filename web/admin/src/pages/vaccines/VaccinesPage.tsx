@@ -1,3 +1,4 @@
+import { USE_MOCK } from '@/api/client';
 import { useState } from 'react';
 import { decideVaccine, getVaccineDetail, getVaccinePage } from '@/api/vaccines';
 import { useCursorList } from '@/hooks/useCursorList';
@@ -92,7 +93,7 @@ export function VaccinesPage() {
                       <span className={styles.itemText}>
                         <strong>{[v.dogName, v.breed, v.weightKg ? `${v.weightKg}kg` : ''].filter(Boolean).join(' · ')}</strong>
                         <span>
-                          {v.owner} · {v.vaccine} · {v.appliedAt.slice(0, 5)} {v.resubmitted ? '재제출' : '제출'}
+                          {[v.owner, v.vaccine, v.appliedAt.slice(0, 5)].filter(Boolean).join(' · ')} {v.resubmitted ? '재제출' : '제출'}
                         </span>
                       </span>
                       {v.status === 'OPERATOR_REVIEW' && (
@@ -140,50 +141,55 @@ export function VaccinesPage() {
           </Card>
         )}
       </div>
-      <p className={page.muted}>반려견 이름과 날짜는 시안용 예시입니다.</p>
+
     </div>
   );
 }
 
 function Detail({ v, onDone, onNext, hasNext, onReloadFile }: { v: VaccineSubmission; onDone: (message: string, nextDocId: string | null) => void; onNext: () => void; hasNext: boolean; onReloadFile: () => void }) {
-  const cert = v.files.find((f) => f.kind === 'CERTIFICATE') ?? v.files[0];
-  const [fileFailed, setFileFailed] = useState(false);
-  // 주소가 만료돼 이미지를 못 열면 상세를 한 번 다시 불러 새 주소를 받아요 (명세 F-OVAC-02)
-  const onFileError = () => {
-    if (fileFailed) return;
-    setFileFailed(true);
-    onReloadFile();
-  };
+  const [fileIndex, setFileIndex] = useState(0);
+  const cert = v.files[fileIndex] ?? v.files[0];
+  const [loadedUrls, setLoadedUrls] = useState<string[]>([]);
+  const [failedUrls, setFailedUrls] = useState<string[]>([]);
+  const fileFailed = Boolean(cert && failedUrls.includes(cert.url));
+  const fileReady = Boolean(cert?.url && loadedUrls.includes(cert.url) && !fileFailed);
+  const isPdf = cert?.contentType === 'application/pdf' || /\.pdf(?:$|[?#])/i.test(cert?.url ?? '');
+  const onFileLoad = () => { if (cert?.url) setLoadedUrls((urls) => urls.includes(cert.url) ? urls : [...urls, cert.url]); };
+  const onFileError = () => { if (cert?.url) setFailedUrls((urls) => urls.includes(cert.url) ? urls : [...urls, cert.url]); };
+  const preview = (large = false) => isPdf
+    ? <iframe key={cert?.url} src={cert?.url} title={`예방접종 증명서 PDF: ${v.dogName}`} className={large ? styles.certPdfLarge : styles.certPdf} onLoad={onFileLoad} onError={onFileError} />
+    : <img key={cert?.url} src={cert?.url} alt={`보호자가 올린 예방접종 증명서: ${v.dogName}`} className={large ? styles.certImgLarge : styles.certImg} onLoad={onFileLoad} onError={onFileError} />;
   // 일치 체크는 화면에서만 써요 (저장하지 않음 · 명세 F-OVAC-02). 서버가 준 일치 여부로 시작해요.
   const [matches, setMatches] = useState<boolean[]>(() => v.fields.map((f) => f.match));
-  const [decision, setDecision] = useState<'VERIFIED' | 'REUPLOAD'>(v.fields.every((f) => f.match) ? 'VERIFIED' : 'REUPLOAD');
+  const [decision, setDecision] = useState<'VERIFIED' | 'REUPLOAD'>('VERIFIED');
   const [reason, setReason] = useState('');
   const [zoom, setZoom] = useState(false);
   const decide = useAction(decideVaccine);
   const allMatch = matches.every(Boolean);
+  const hasItems = USE_MOCK || Boolean(v.verificationItems?.length);
   const readonly = v.status !== 'OPERATOR_REVIEW';
 
   const onSubmit = async () => {
-    const res = await decide.run(v.id, decision, decision === 'REUPLOAD' ? reason : undefined);
+    if (decision === 'VERIFIED' && (!allMatch || !fileReady || !hasItems)) return;
+    const res = await decide.run(v.id, decision, decision === 'REUPLOAD' ? reason : undefined, v.verificationItems);
     if (res.ok) onDone(decision === 'VERIFIED' ? `${v.dogName}의 예방접종을 ‘확인됨’으로 바꿨어요. 보호자에게 알림이 가요.` : `${v.dogName} 보호자에게 재제출을 요청했어요 (${reason}).`, res.data.nextDocId);
   };
 
   return (
-    <Card title={`${v.dogName} · ${v.vaccine} 증명서`} aside={`${v.id} · ${v.appliedAt} 제출`} className={styles.detail}>
+    <Card title={`${v.dogName} · ${v.vaccine} 증명서`} aside={`기록 ${v.id}${v.appliedAt ? ` · ${v.appliedAt} 제출` : ''}`} className={styles.detail}>
       <div className={styles.detailBody}>
         <div className={styles.certImage}>
-          {cert ? (
-            <img src={cert.url} alt={`보호자가 올린 예방접종 증명서: ${v.dogName}`} className={styles.certImg} onError={onFileError} />
-          ) : (
-            <>
-              <Icon name="image" size={36} />
-              <span>첨부된 증명서가 없어요</span>
-            </>
-          )}
-          {fileFailed && <span role="alert">이미지를 열지 못했어요. 새 주소로 다시 불러왔어요.</span>}
-          <Button variant="secondary" size="sm" disabled={!cert} onClick={() => setZoom(true)}>
-            크게 보기
-          </Button>
+          {v.files.length > 1 && <Select aria-label="첨부파일 선택" value={fileIndex} onChange={(e) => setFileIndex(Number(e.target.value))}>
+            {v.files.map((file, index) => <option key={file.fileId} value={index}>증명서 {index + 1}{file.contentType === 'application/pdf' ? ' · PDF' : ''}</option>)}
+          </Select>}
+          {cert?.url ? preview() : <><Icon name="image" size={36} /><span>{cert ? '첨부파일 열람 주소를 불러오지 못했어요.' : '첨부된 증명서가 없어요'}</span></>}
+          {fileFailed && <span role="alert">파일을 열지 못했어요. 주소가 만료됐거나 파일을 불러올 수 없어요.</span>}
+          {cert?.readError && <span role="alert">{cert.readError}</span>}
+          <div className={styles.fileActions}>
+            <Button variant="secondary" size="sm" disabled={!cert?.url} onClick={() => setZoom(true)}>크게 보기</Button>
+            <Button variant="secondary" size="sm" onClick={onReloadFile}>첨부 다시 불러오기</Button>
+            {cert?.url && <a href={cert.url} target="_blank" rel="noopener noreferrer">원본 열기</a>}
+          </div>
         </div>
         <div className={styles.compare}>
           <span className={styles.compareTitle}>서류와 입력 정보 대조</span>
@@ -192,13 +198,13 @@ function Detail({ v, onDone, onNext, hasNext, onReloadFile }: { v: VaccineSubmis
               <tr>
                 <th scope="col">항목</th>
                 <th scope="col">AI가 읽은 값</th>
-                <th scope="col">반영된 값</th>
-                <th scope="col">일치</th>
+                <th scope="col">검토할 값</th>
+                <th scope="col">서류 확인</th>
               </tr>
             </thead>
             <tbody>
               {v.fields.map((f, i) => (
-                <tr key={f.key} className={!f.match ? styles.mismatch : undefined}>
+                <tr key={f.key} className={!readonly && !matches[i] ? styles.mismatch : undefined}>
                   <td>{f.label}</td>
                   <td className={table.muted}>{f.aiValue ?? '읽지 못함'}</td>
                   <td>
@@ -211,14 +217,14 @@ function Detail({ v, onDone, onNext, hasNext, onReloadFile }: { v: VaccineSubmis
                     )}
                   </td>
                   <td>
-                    <input
+                    {readonly ? <span className={table.muted}>처리 완료</span> : <input
                       type="checkbox"
                       className={styles.check}
-                      aria-label={`${f.label} 일치`}
-                      checked={readonly ? f.match : matches[i]}
+                      aria-label={`${f.label} 서류 확인`}
+                      checked={matches[i]}
                       disabled={readonly}
                       onChange={(e) => setMatches((m) => m.map((x, j) => (j === i ? e.target.checked : x)))}
-                    />
+                    />}
                   </td>
                 </tr>
               ))}
@@ -254,6 +260,7 @@ function Detail({ v, onDone, onNext, hasNext, onReloadFile }: { v: VaccineSubmis
                 : '보호자에게 고른 사유와 함께 다시 올려 달라는 알림이 가요.'}
             </span>
           </fieldset>
+          {decision === 'VERIFIED' && (!fileReady || !hasItems) && <Notice tone="warning">첨부 서류와 유효한 접종 항목을 확인할 수 있어야 확인 완료할 수 있어요.</Notice>}
           {decision === 'VERIFIED' && !allMatch && <Notice tone="warning">일치하지 않는 항목이 있어요. 모든 항목이 맞아야 확인 완료할 수 있어요. 다르면 재제출을 요청하세요.</Notice>}
           {decide.error && (
             <Notice tone="danger" role="alert">
@@ -264,7 +271,7 @@ function Detail({ v, onDone, onNext, hasNext, onReloadFile }: { v: VaccineSubmis
             <Button variant="secondary" onClick={onNext} disabled={!hasNext}>
               다음 건 보기
             </Button>
-            <Button variant={decision === 'VERIFIED' ? 'success' : 'caution'} disabled={decide.pending || (decision === 'VERIFIED' ? !allMatch : !reason)} onClick={onSubmit}>
+            <Button variant={decision === 'VERIFIED' ? 'success' : 'caution'} disabled={decide.pending || (decision === 'VERIFIED' ? !allMatch || !fileReady || !hasItems : !reason)} onClick={onSubmit}>
               {decision === 'VERIFIED' ? '확인 완료 처리' : '재제출 요청 보내기'}
             </Button>
           </div>
@@ -272,9 +279,9 @@ function Detail({ v, onDone, onNext, hasNext, onReloadFile }: { v: VaccineSubmis
       )}
 
       <Modal open={zoom} onClose={() => setZoom(false)} title={v.fileName} kicker={`${v.dogName} · ${v.id}`} width={760}>
-        {cert && (
+        {cert?.url && (
           <div className={`${styles.certImage} ${styles.certLarge}`}>
-            <img src={cert.url} alt={`예방접종 증명서 확대: ${v.dogName}`} className={styles.certImgLarge} onError={onFileError} />
+            {preview(true)}
             <a href={cert.url} target="_blank" rel="noopener noreferrer">
               새 창에서 원본 열기
             </a>
