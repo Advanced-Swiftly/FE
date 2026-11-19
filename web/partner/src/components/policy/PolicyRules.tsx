@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { CODE_RE, diffConditions, KNOWN_CODE_LABEL, RULE_GROUP_LABEL, RULE_GROUPS, type PolicyRule, type RuleGroup, type RuleSet, type EntryConditions, type AreaPolicy, type StorePolicy } from '@/api/policy';
 import { changedPolicyItems, describePolicyItem, draftPolicy, policyItemLabel, type PolicyItem } from '@/api/policyItems';
 import { Button } from '@/components/common/Button';
-import { Choice, Field, InputRow, Select, TextArea, TextInput } from '@/components/common/Field';
+import { Choice, Field, InputRow, Select, TextInput } from '@/components/common/Field';
 import { Icon } from '@/components/common/Icon';
 import { Tag } from '@/components/common/Tag';
 import styles from './PolicyRules.module.css';
@@ -226,28 +226,6 @@ export function PolicyRulesEditor({ base, value, onChange, breeds }: { base: Sto
         <Choice type="checkbox" label="예방접종 확인 조건 검토 완료" checked={c.vaccinationConfirmed === true} onChange={(e) => set({ vaccinationConfirmed: e.target.checked })} />
       </ItemSection>
 
-      <ItemSection item="effectiveFrom" {...section}>
-        <Field label="적용 시작일" htmlFor="policy-effective-from" hideLabel>
-          <TextInput id="policy-effective-from" className={styles.narrow} type="date" value={c.effectiveFrom ?? ''} onChange={(e) => set({ effectiveFrom: e.target.value || null })} />
-        </Field>
-      </ItemSection>
-
-      <ItemSection item="notice" {...section}>
-        <Field label="공지 문장" htmlFor="policy-notice" hideLabel hint={`${(c.notice ?? '').length}/500`}>
-          <TextArea id="policy-notice" rows={2} maxLength={500} value={c.notice ?? ''} onChange={(e) => set({ notice: e.target.value })} />
-        </Field>
-      </ItemSection>
-
-      <section aria-labelledby="policy-title-reason" className={styles.section}>
-        <header className={styles.sectionHead}>
-          <h3 id="policy-title-reason" className={styles.sectionTitle}>
-            변경 사유
-          </h3>
-        </header>
-        <Field label="변경 사유" htmlFor="policy-change-reason" hideLabel hint={`${(c.changeReason ?? '').length}/500`}>
-          <TextInput id="policy-change-reason" maxLength={500} value={c.changeReason ?? ''} onChange={(e) => set({ changeReason: e.target.value })} />
-        </Field>
-      </section>
     </div>
   );
 }

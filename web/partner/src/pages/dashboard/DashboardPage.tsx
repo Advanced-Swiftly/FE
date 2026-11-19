@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { getConditions } from '@/api/conditions';
 import { USE_MOCK } from '@/api/client';
 import { getBreedNames, getStorePolicy } from '@/api/policy';
-import { describePolicyItem, getTitledRequestPage, POLICY_ITEMS } from '@/api/policyItems';
+import { describePolicyItem, getTitledRequestPage, STATUS_ITEMS } from '@/api/policyItems';
 import { getVisitStats } from '@/api/stats';
 import { getDashboard } from '@/api/stores';
 import { Button } from '@/components/common/Button';
@@ -129,7 +129,7 @@ export function DashboardPage() {
             <>
               {serverPolicy.exists ? (
                 <dl className={styles.condList}>
-                  {POLICY_ITEMS.map(({ key, label }) => {
+                  {STATUS_ITEMS.map(({ key, label }) => {
                     const row = describePolicyItem(serverPolicy, key, breeds.data ?? new Map());
                     return (
                       <div key={key} className={styles.condRow}>
@@ -143,7 +143,6 @@ export function DashboardPage() {
                 <p className={page.muted}>아직 운영자가 확인한 입장 정책이 없어요.</p>
               )}
               <div className={styles.condFoot}>
-                <span>{serverPolicy.exists ? `정책 버전 ${serverPolicy.version}` : '정책 없음'}</span>
                 {checkedAt && <span>조건 확인일: {formatDate(checkedAt)}</span>}
                 <Link to="/conditions" className={styles.condLink}>
                   입장 조건 현황 <Icon name="chevronRight" size={14} />

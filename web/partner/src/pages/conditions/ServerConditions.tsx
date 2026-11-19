@@ -6,11 +6,11 @@ import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-do
 import { previewPolicy, createPolicyRequest, getBreedNames, getStorePolicy, resubmitPolicyRequest, type RuleSet, type StorePolicy } from '@/api/policy';
 import { uploadFile } from '@/api/files';
 import { getRequestDetail } from '@/api/requests';
-import { changedPolicyItems, describePolicyItem, draftPolicy, getPendingRequestLinks, policyChanged, policyItemLabel, POLICY_ITEMS, type PendingRequestLink, type PolicyItem, type PolicyItemState } from '@/api/policyItems';
+import { changedPolicyItems, describePolicyItem, draftPolicy, getPendingRequestLinks, policyItemLabel, STATUS_ITEMS, type PendingRequestLink, type PolicyItem, type PolicyItemState } from '@/api/policyItems';
 import { getDashboard } from '@/api/stores';
 import { Button, ButtonLink } from '@/components/common/Button';
 import { Card } from '@/components/common/Card';
-import { Choice, Field, TextArea } from '@/components/common/Field';
+import { Choice, Field, TextArea, TextInput } from '@/components/common/Field';
 import { LoadState } from '@/components/common/LoadState';
 import { Notice } from '@/components/common/Notice';
 import { PageHeader } from '@/components/common/PageHeader';
@@ -23,6 +23,7 @@ import { useCurrentStore } from '@/hooks/useCurrentStore';
 import { useFetch } from '@/hooks/useFetch';
 import page from '@/styles/page.module.css';
 import table from '@/styles/table.module.css';
+import { todayISO } from '@/utils/date';
 import { formatDate } from '@/utils/format';
 import editStyles from './ConditionEditPage.module.css';
 import styles from './ConditionsPage.module.css';
@@ -34,7 +35,7 @@ const VERDICT: Record<string, Judgment> = { ENTRY_OK: 'ENTRY_OK', PREPARE: 'PREP
 const SCOPE_NOTE = '실내·야외 조건과 적용 시작일을 확인해 주세요. 운영자 승인 전까지 기존 조건이 유지돼요.';
 /** 표의 보호자 안내 칸 — 서버 응답에 없는 항목은 판정 결과를 짐작하지 않아요 */
 const GUIDE: Record<PolicyItemState, string> = { LIMITED: '조건에 맞으면 충족', UNRESTRICTED: '‘가능’으로 안내', UNKNOWN: '서버에 확인된 정보 없음', INFO: '운영자 승인 후 반영' };
-const VERSION_CONFLICT_NOTE = '조건 요청은 정책 전체를 기준으로 처리돼요. 진행 중인 요청 중 하나가 먼저 승인되면 정책 버전이 바뀌어, 다른 항목의 요청도 승인할 수 없어 다시 보내야 해요.';
+const VERSION_CONFLICT_NOTE = '조건 요청은 입장 조건 전체를 기준으로 처리돼요. 진행 중인 요청 중 하나가 먼저 승인되면 입장 조건이 바뀌어, 다른 항목의 요청도 승인할 수 없어 다시 보내야 해요.';
 
 /** 진행 중 요청의 행 동작 — 보완 요청은 보완하기, 나머지는 요청 보기 (같은 행의 요청을 모두 보여 줘요) */
 function RequestActions({ link, showId, onOpen }: { link: PendingRequestLink; showId: boolean; onOpen: (id: string) => void }) {
@@ -113,10 +114,6 @@ export function ServerConditionsPage() {
               <strong>{checkedAt ? formatDate(checkedAt) : '미확인'}</strong>
             </span>
             <span className={page.pill}>
-              <span>정책 버전</span>
-              <strong>{p.exists ? p.version : '없음'}</strong>
-            </span>
-            <span className={page.pill}>
               <span>적용 시작일</span>
               <strong>{p.conditions?.effectiveFrom ? formatDate(p.conditions.effectiveFrom) : '미확인'}</strong>
             </span>
@@ -140,7 +137,7 @@ export function ServerConditionsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {POLICY_ITEMS.map(({ key, label }) => {
+                  {STATUS_ITEMS.map(({ key, label }) => {
                     const row = describePolicyItem(p, key, breeds.data ?? new Map());
                     const rowLinks = links.filter((l) => l.items.includes(key));
                     return (
@@ -200,6 +197,24 @@ export function ServerConditionsPage() {
   );
 }
 
+/** 수정 요청 화면의 단계 제목 — ① 바꿀 조건 · ② 요청 정보 · ③ 근거 자료 */
+function StepHead({ id, n, title, description, aside }: { id: string; n: number; title: string; description: string; aside?: string }) {
+  return (
+    <header className={editStyles.stepHead}>
+      <span className={editStyles.stepNo} aria-hidden="true">
+        {n}
+      </span>
+      <div className={editStyles.stepText}>
+        <h2 id={id} className={editStyles.stepTitle}>
+          {title}
+          {aside && <span className={editStyles.stepAside}>{aside}</span>}
+        </h2>
+        <p className={editStyles.stepDesc}>{description}</p>
+      </div>
+    </header>
+  );
+}
+
 /** 서버 모드 UI-W-011 입장 조건 변경 요청 · ?request= 보완 제출 */
 export function ServerConditionEditPage() {
   const { store } = useCurrentStore();
@@ -251,8 +266,8 @@ const ITEM_TARGET: Partial<Record<PolicyItem, string[]>> = {
   area: ['policy-item-area'],
   equipment: ['policy-item-equipment'],
   vaccine: ['rule-vaccineRules'],
-  effectiveFrom: ['policy-item-effectiveFrom'],
-  notice: ['policy-item-notice'],
+  effectiveFrom: ['policy-effective-from'],
+  notice: ['policy-notice'],
 };
 
 function EditForm({ policy, breeds, request, pendingLinks, onReload }: { policy: StorePolicy; breeds: Map<string, string>; request: ConditionRequestDetail | null; pendingLinks: PendingRequestLink[] | null; onReload: () => void }) {
@@ -260,7 +275,20 @@ function EditForm({ policy, breeds, request, pendingLinks, onReload }: { policy:
   const { store } = useCurrentStore();
   const resubmit = request !== null;
   // 지금 정책 전체에서 시작해요 — 고치지 않은 조건도 그대로 함께 보내져서 지워지지 않아요
-  const [draft, setDraft] = useState<RuleSet>({ conditions: request?.requestedPolicy?.conditions ?? policy.conditions, breedRules: [...(request?.requestedPolicy?.breedRules ?? policy.breedRules)], equipmentRules: [...(request?.requestedPolicy?.equipmentRules ?? policy.equipmentRules)], vaccineRules: [...(request?.requestedPolicy?.vaccineRules ?? policy.vaccineRules)] });
+  // 변경 사유는 요청마다 새로 적는 값이라, 새 요청은 지난 사유를 지우고 빈 칸으로 시작해요 (보완은 그 요청의 사유를 이어받아요)
+  const startConditions = request?.requestedPolicy?.conditions ?? (policy.conditions ? { ...policy.conditions, changeReason: '' } : policy.conditions);
+  const [draft, setDraft] = useState<RuleSet>({ conditions: startConditions, breedRules: [...(request?.requestedPolicy?.breedRules ?? policy.breedRules)], equipmentRules: [...(request?.requestedPolicy?.equipmentRules ?? policy.equipmentRules)], vaccineRules: [...(request?.requestedPolicy?.vaccineRules ?? policy.vaccineRules)] });
+  // 요청 설명 — 공지 문장 · 변경 사유는 빈 칸으로 시작해요. 보완은 그 요청에서 새로 적었던 값만 다시 채워요
+  const requestedNotice = request?.requestedPolicy?.conditions?.notice?.trim() ?? '';
+  const [noticeInput, setNoticeInput] = useState(requestedNotice && requestedNotice !== (policy.conditions?.notice?.trim() ?? '') ? requestedNotice : '');
+  const [reasonInput, setReasonInput] = useState(request?.requestedPolicy?.conditions?.changeReason?.trim() ?? '');
+  // 적용 시작일도 빈 칸으로 시작해요. 보완은 그 요청에서 새로 고른 날짜만 다시 채워요
+  const requestedFrom = request?.requestedPolicy?.conditions?.effectiveFrom ?? '';
+  const [fromInput, setFromInput] = useState(requestedFrom && requestedFrom !== (policy.conditions?.effectiveFrom ?? '') ? requestedFrom : '');
+  // 보낼 정책 — 공지 · 적용 시작일을 비워 두면 지금 값을 그대로 보내요 (체중만 바꾸려다 다른 값이 지워지지 않게)
+  const requested: RuleSet = draft.conditions
+    ? { ...draft, conditions: { ...draft.conditions, effectiveFrom: fromInput || draft.conditions.effectiveFrom, notice: noticeInput.trim() || draft.conditions.notice, changeReason: reasonInput.trim() || null } }
+    : draft;
   // 보완 제출: BE 상세에 이전 요청 정책이 없어서, 정책을 다시 보낼지는 직접 고르게 해요 (보내지 않으면 이전 요청 정책 그대로)
   const [sendPolicy, setSendPolicy] = useState(!resubmit);
   const [sourceText, setSourceText] = useState(request?.sourceText ?? '');
@@ -293,9 +321,10 @@ function EditForm({ policy, breeds, request, pendingLinks, onReload }: { policy:
   const urls = [...parseUrls(urlText), ...uploaded.map(f=>f.url)];
   const badUrl = urls.find((u) => !URL_RE.test(u) || u.length > 500);
   // 항목별로 들어와도 지금 정책 전체를 고쳐서 보내요. 고치지 않은 조건은 그대로 함께 전송돼요
-  const changed = policyChanged(policy, draft);
+  // 변경 사유만 적은 것은 조건 변경이 아니에요
+  const changed = changedPolicyItems(policy, requested).length > 0;
   const otherLinks = (pendingLinks ?? []).filter((l) => l.request.id !== request?.id);
-  const overlap = !resubmit || sendPolicy ? changedPolicyItems(policy, draft).filter((item) => otherLinks.some((l) => l.items.includes(item))) : [];
+  const overlap = !resubmit || sendPolicy ? changedPolicyItems(policy, requested).filter((item) => otherLinks.some((l) => l.items.includes(item))) : [];
   // 정책 원문은 승인되면 입장 조건의 근거로 저장되는 값이라, 공지 · 변경 사유로 대신 채우지 않고 직접 적게 해요
   const sourceMissing = !resubmit && sourceText.trim().length === 0;
   const blockers = [
@@ -309,9 +338,9 @@ function EditForm({ policy, breeds, request, pendingLinks, onReload }: { policy:
   const canSubmit = !uploading && !action.pending && blockers.length === 0;
   const conflict = action.errorCode === 'POLICY_VERSION_CONFLICT';
   const editing = !resubmit || sendPolicy;
-  const changedItems = editing ? changedPolicyItems(policy, draft) : [];
-  const reasonChanged = editing && (policy.conditions?.changeReason?.trim() ?? '') !== (draft.conditions?.changeReason?.trim() ?? '');
-  const after = draftPolicy(policy, draft);
+  const changedItems = editing ? changedPolicyItems(policy, requested) : [];
+  const reasonChanged = editing && reasonInput.trim() !== '';
+  const after = draftPolicy(policy, requested);
 
   const onPickFiles = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
@@ -336,7 +365,7 @@ function EditForm({ policy, breeds, request, pendingLinks, onReload }: { policy:
     e.preventDefault();
     setTried(true);
     if (!canSubmit) return;
-    const res = resubmit ? await re.run(request.id, sendPolicy ? draft : null, sourceText, urls) : await create.run(store.id, policy.version, draft, sourceText, urls);
+    const res = resubmit ? await re.run(request.id, sendPolicy ? requested : null, sourceText, urls) : await create.run(store.id, policy.version, requested, sourceText, urls);
     if (res.ok) navigate('/conditions', { state: { flash: resubmit ? '보완 내용을 보냈어요. 운영자가 다시 확인해요.' : '변경 요청을 보냈어요. 운영자가 승인하면 반영돼요.' } });
   };
 
@@ -350,61 +379,82 @@ function EditForm({ policy, breeds, request, pendingLinks, onReload }: { policy:
         </Notice>
       )}
       <div className={page.split}>
-        <div className={page.main} aria-label="항목별 조건">
-          {resubmit && (
-            <Card>
-              <Choice type="checkbox" label="요청 정책을 고쳐서 다시 보내기 (지금 정책 기준으로 전체를 다시 보내요)" checked={sendPolicy} onChange={(e) => setSendPolicy(e.target.checked)} />
-            </Card>
-          )}
-          {editing && <PolicyRulesEditor base={policy} value={draft} onChange={setDraft} breeds={breeds} />}
-          <Card title="근거 자료">
-            <div className={editStyles.evidence}>
-              <span className={editStyles.label}>근거 파일 (선택)</span>
-              {uploaded.map((file) => (
-                <div key={file.url} className={editStyles.file}>
-                  <Icon name="image" size={16} />
-                  <span>{file.name}</span>
-                  <button type="button" aria-label={`${file.name} 삭제`} onClick={() => setUploaded((list) => list.filter((x) => x.url !== file.url))}>
-                    <Icon name="close" size={14} />
-                  </button>
+        <div className={page.main}>
+          <section className={editStyles.step} aria-labelledby="step-conditions">
+            <StepHead id="step-conditions" n={1} title="바꿀 조건" description="보호자에게 적용될 입장 조건을 고쳐 주세요." />
+            {resubmit && (
+              <Card>
+                <Choice type="checkbox" label="요청 정책을 고쳐서 다시 보내기 (지금 정책 기준으로 전체를 다시 보내요)" checked={sendPolicy} onChange={(e) => setSendPolicy(e.target.checked)} />
+              </Card>
+            )}
+            {editing && <PolicyRulesEditor base={policy} value={draft} onChange={setDraft} breeds={breeds} />}
+          </section>
+          <div className={editStyles.requestArea}>
+            {editing && (
+              <section className={editStyles.step} aria-labelledby="step-request">
+                <StepHead id="step-request" n={2} title="요청 정보" description="언제부터, 어떤 안내로 적용할지 적어 주세요." />
+                <Card>
+                  <Field label="적용 시작일 (선택)" htmlFor="policy-effective-from" hint="비워 두면 운영자가 승인한 날부터 적용돼요.">
+                    <TextInput id="policy-effective-from" className={editStyles.narrow} type="date" min={todayISO()} value={fromInput} onChange={(e) => setFromInput(e.target.value)} />
+                  </Field>
+                  <Field label="공지 문장 (선택)" htmlFor="policy-notice" hint={`승인되면 매장 공지로 저장돼요. 비워 두면 지금 공지를 그대로 유지해요. ${noticeInput.length}/500`}>
+                    <TextArea id="policy-notice" rows={2} maxLength={500} placeholder="예: 실내 10kg 이하, 초과 시 야외 테라스 이용" value={noticeInput} onChange={(e) => setNoticeInput(e.target.value)} />
+                  </Field>
+                  <Field label="변경 사유 (선택)" htmlFor="policy-change-reason" hint={`운영자가 요청을 검토할 때 참고해요. ${reasonInput.length}/500`}>
+                    <TextInput id="policy-change-reason" maxLength={500} placeholder="예: 매장 운영 기준 변경" value={reasonInput} onChange={(e) => setReasonInput(e.target.value)} />
+                  </Field>
+                </Card>
+              </section>
+            )}
+            <section className={editStyles.step} aria-labelledby="step-evidence">
+              <StepHead id="step-evidence" n={editing ? 3 : 2} title="근거 자료" description="운영자가 확인할 근거를 올려 주세요." aside={resubmit ? undefined : '필수 1개 · 정책 원문'} />
+              <Card>
+                <div className={editStyles.evidence}>
+                  <span className={editStyles.label}>근거 파일 (선택)</span>
+                  {uploaded.map((file) => (
+                    <div key={file.url} className={editStyles.file}>
+                      <Icon name="image" size={16} />
+                      <span>{file.name}</span>
+                      <button type="button" aria-label={`${file.name} 삭제`} onClick={() => setUploaded((list) => list.filter((x) => x.url !== file.url))}>
+                        <Icon name="close" size={14} />
+                      </button>
+                    </div>
+                  ))}
+                  <input ref={fileInput} type="file" className="sr-only" aria-label="근거 파일 추가" accept="image/png,image/jpeg,image/webp,application/pdf" multiple disabled={uploading} onChange={onPickFiles} />
+                  <div className={editStyles.evidenceActions}>
+                    <Button variant="secondary" size="sm" disabled={uploading} onClick={() => fileInput.current?.click()}>
+                      <Icon name="plus" size={16} />
+                      {uploading ? '올리는 중…' : '파일 추가'}
+                    </Button>
+                  </div>
+                  <span className={page.muted}>사진 · PDF 파일을 첨부할 수 있어요.</span>
+                  {uploadError && <Notice tone="danger">{uploadError}</Notice>}
                 </div>
-              ))}
-              <input ref={fileInput} type="file" className="sr-only" aria-label="근거 파일 추가" accept="image/png,image/jpeg,image/webp,application/pdf" multiple disabled={uploading} onChange={onPickFiles} />
-              <div className={editStyles.evidenceActions}>
-                <Button variant="secondary" size="sm" disabled={uploading} onClick={() => fileInput.current?.click()}>
-                  <Icon name="plus" size={16} />
-                  {uploading ? '올리는 중…' : '파일 추가'}
-                </Button>
-              </div>
-              <span className={page.muted}>사진 · PDF 파일을 첨부할 수 있어요.</span>
-              {uploadError && <Notice tone="danger">{uploadError}</Notice>}
-            </div>
-            <Field
-              label={resubmit ? '정책 원문 (바꿀 때만)' : '정책 원문 (필수)'}
-              htmlFor="sv-source"
-              hint={`매장 안내문 등 입장 조건의 근거가 되는 원문을 그대로 적어 주세요. 승인되면 입장 조건의 근거로 저장돼요. ${sourceText.trim().length}/2000`}
-              message={tried && sourceMissing ? { tone: 'error', text: '정책 원문을 적어 주세요' } : null}
-            >
-              <TextArea id="sv-source" rows={4} maxLength={2000} value={sourceText} onChange={(e) => setSourceText(e.target.value)} />
-            </Field>
-            <Field
-              label="근거 주소 (선택)"
-              htmlFor="sv-urls"
-              hint={`공지 · 사진이 있는 http(s) 주소를 한 줄에 하나씩, 10개까지 적어 주세요 (${urls.length}/10).${resubmit ? ' 이미 보낸 주소에 더해져요.' : ''}`}
-              message={badUrl ? { tone: 'error', text: `주소 형식을 확인해 주세요: ${badUrl}` } : urls.length > 10 ? { tone: 'error', text: '근거 주소는 10개까지예요' } : null}
-            >
-              <TextArea id="sv-urls" rows={3} value={urlText} onChange={(e) => setUrlText(e.target.value)} />
-            </Field>
-          </Card>
+                <Field
+                  label={resubmit ? '정책 원문 (바꿀 때만)' : '정책 원문 (필수)'}
+                  htmlFor="sv-source"
+                  hint={`매장 안내문 등 입장 조건의 근거가 되는 원문을 그대로 적어 주세요. 승인되면 입장 조건의 근거로 저장돼요. ${sourceText.trim().length}/2000`}
+                  message={tried && sourceMissing ? { tone: 'error', text: '정책 원문을 적어 주세요' } : null}
+                >
+                  <TextArea id="sv-source" rows={4} maxLength={2000} value={sourceText} onChange={(e) => setSourceText(e.target.value)} />
+                </Field>
+                <Field
+                  label="근거 주소 (선택)"
+                  htmlFor="sv-urls"
+                  hint={`공지 · 사진이 있는 http(s) 주소를 한 줄에 하나씩, 10개까지 적어 주세요 (${urls.length}/10).${resubmit ? ' 이미 보낸 주소에 더해져요.' : ''}`}
+                  message={badUrl ? { tone: 'error', text: `주소 형식을 확인해 주세요: ${badUrl}` } : urls.length > 10 ? { tone: 'error', text: '근거 주소는 10개까지예요' } : null}
+                >
+                  <TextArea id="sv-urls" rows={3} value={urlText} onChange={(e) => setUrlText(e.target.value)} />
+                </Field>
+              </Card>
+            </section>
+          </div>
         </div>
 
         <aside className={`${page.side} ${editStyles.summary}`} aria-labelledby="sv-summary-title">
-          <div className={page.stackSm}>
-            <h2 id="sv-summary-title" className={editStyles.summaryTitle}>
-              변경 요약 · {changedItems.length + (reasonChanged ? 1 : 0)}개 항목
-            </h2>
-            <span className={page.muted}>{policy.exists ? `기준 정책 버전 ${policy.version}` : '기준 버전 0 (등록된 정책 없음)'}</span>
-          </div>
+          <h2 id="sv-summary-title" className={editStyles.summaryTitle}>
+            변경 요약 · {changedItems.length + (reasonChanged ? 1 : 0)}개 항목
+          </h2>
           {!editing ? (
             <p className={page.muted}>이전에 요청한 정책을 그대로 보내요.</p>
           ) : changedItems.length === 0 && !reasonChanged ? (
@@ -422,7 +472,7 @@ function EditForm({ policy, breeds, request, pendingLinks, onReload }: { policy:
               {reasonChanged && (
                 <li>
                   <strong>변경 사유</strong>
-                  <span>{draft.conditions?.changeReason?.trim() || '없음'}</span>
+                  <span>{reasonInput.trim()}</span>
                 </li>
               )}
             </ul>
