@@ -71,6 +71,47 @@ enum ServerSample {
 final class APIClientTests: XCTestCase {
     private let base = URL(string: "https://test.local/api/v1")!
 
+    private struct FailingTransport: HTTPTransport {
+        let error: any Error & Sendable
+
+        func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+            throw error
+        }
+    }
+
+    func test_cancelledURLRequest_preservesCancellation() async {
+        await assertCancellation(from: URLError(.cancelled))
+    }
+
+    func test_cancelledTask_preservesCancellation() async {
+        await assertCancellation(from: CancellationError())
+    }
+
+    private func assertCancellation(from error: any Error & Sendable) async {
+        let client = APIClient(baseURL: base, transport: FailingTransport(error: error),
+                               tokenStore: InMemoryTokenStore())
+        do {
+            _ = try await client.send(AuthEndpoints.me)
+            XCTFail("취소된 요청이 성공하면 안 됩니다")
+        } catch is CancellationError {
+            // 지도에서 조용히 무시할 수 있도록 취소를 연결 오류와 구분한다.
+        } catch {
+            XCTFail("취소가 다른 오류로 바뀌었습니다: \(error)")
+        }
+    }
+
+    func test_offlineRequest_stillReportsNetworkError() async {
+        let client = APIClient(baseURL: base,
+                               transport: FailingTransport(error: URLError(.notConnectedToInternet)),
+                               tokenStore: InMemoryTokenStore())
+        do {
+            _ = try await client.send(AuthEndpoints.me)
+            XCTFail("오프라인 요청이 성공하면 안 됩니다")
+        } catch {
+            XCTAssertEqual(error as? APIError, .network)
+        }
+    }
+
     func test_로그인_성공하면_토큰을_저장하고_phoneNumber로_보낸다() async throws {
         let transport = StubTransport()
         transport.enqueue("/auth/login", status: 200, body: ServerSample.login)
