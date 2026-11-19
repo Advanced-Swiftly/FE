@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 댕댕로드: 진행 카드 · 스탬프 10칸 · 상품 · 방문 기록 · [QR로 방문 인증하기]
+/// 댕댕로드: 진행 카드 · 스탬프 6칸(3 × 2) · 상품 · 방문 기록 · [QR로 방문 인증하기]
 struct RoadView: View {
     @Environment(AppStore.self) private var store
     @State private var event: CurrentEvent?
@@ -17,7 +17,7 @@ struct RoadView: View {
     @State private var message: String?
 
     private var count: Int { stamps?.stampCount ?? 0 }
-    private var max: Int { stamps?.maxStampCount ?? 10 }
+    private var max: Int { stamps?.maxStampCount ?? 6 }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -143,7 +143,8 @@ struct RoadView: View {
 
     private var stampGrid: some View {
         let awarded = (stamps?.stores ?? []).filter(\.awarded)
-        let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 5)
+        // 3칸씩 2줄: 1 2 3 / 4 5 응모
+        let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 3)
         return VStack(alignment: .leading, spacing: 14) {
             Text("스탬프").font(.pawfit(16, .semibold)).padding(.horizontal, 4).accessibilityAddTraits(.isHeader)
             LazyVGrid(columns: columns, spacing: 14) {
@@ -408,7 +409,7 @@ struct DrawReadyView: View {
             TopBar(title: "", leading: .close, onLeading: { onFinish(false) })
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    LazyVGrid(columns: Array(repeating: GridItem(.fixed(40), spacing: 15), count: 5), spacing: 15) {
+                    LazyVGrid(columns: Array(repeating: GridItem(.fixed(40), spacing: 15), count: 3), spacing: 15) {
                         ForEach(0..<Swift.max(max, 1), id: \.self) { _ in
                             Image(systemName: "pawprint.fill").font(.system(size: 16)).foregroundStyle(.white)
                                 .frame(width: 40, height: 40).background(PawFitColor.brand, in: Circle())
