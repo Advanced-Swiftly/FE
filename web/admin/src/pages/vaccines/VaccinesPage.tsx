@@ -1,4 +1,3 @@
-import { USE_MOCK } from '@/api/client';
 import { useState } from 'react';
 import { decideVaccine, getVaccineDetail, getVaccinePage } from '@/api/vaccines';
 import { useCursorList } from '@/hooks/useCursorList';
@@ -149,30 +148,25 @@ export function VaccinesPage() {
 function Detail({ v, onDone, onNext, hasNext, onReloadFile }: { v: VaccineSubmission; onDone: (message: string, nextDocId: string | null) => void; onNext: () => void; hasNext: boolean; onReloadFile: () => void }) {
   const [fileIndex, setFileIndex] = useState(0);
   const cert = v.files[fileIndex] ?? v.files[0];
-  const [loadedUrls, setLoadedUrls] = useState<string[]>([]);
   const [failedUrls, setFailedUrls] = useState<string[]>([]);
   const fileFailed = Boolean(cert && failedUrls.includes(cert.url));
-  const fileReady = Boolean(cert?.url && loadedUrls.includes(cert.url) && !fileFailed);
   const isPdf = cert?.contentType === 'application/pdf' || /\.pdf(?:$|[?#])/i.test(cert?.url ?? '');
-  const onFileLoad = () => { if (cert?.url) setLoadedUrls((urls) => urls.includes(cert.url) ? urls : [...urls, cert.url]); };
   const onFileError = () => { if (cert?.url) setFailedUrls((urls) => urls.includes(cert.url) ? urls : [...urls, cert.url]); };
   const preview = (large = false) => isPdf
-    ? <iframe key={cert?.url} src={cert?.url} title={`예방접종 증명서 PDF: ${v.dogName}`} className={large ? styles.certPdfLarge : styles.certPdf} onLoad={onFileLoad} onError={onFileError} />
-    : <img key={cert?.url} src={cert?.url} alt={`보호자가 올린 예방접종 증명서: ${v.dogName}`} className={large ? styles.certImgLarge : styles.certImg} onLoad={onFileLoad} onError={onFileError} />;
+    ? <iframe key={cert?.url} src={cert?.url} title={`예방접종 증명서 PDF: ${v.dogName}`} className={large ? styles.certPdfLarge : styles.certPdf} onError={onFileError} />
+    : <img key={cert?.url} src={cert?.url} alt={`보호자가 올린 예방접종 증명서: ${v.dogName}`} className={large ? styles.certImgLarge : styles.certImg} onError={onFileError} />;
   // 일치 체크는 화면에서만 써요 (저장하지 않음 · 명세 F-OVAC-02). 서버가 준 일치 여부로 시작해요.
   const [matches, setMatches] = useState<boolean[]>(() => v.fields.map((f) => f.match));
   const [decision, setDecision] = useState<'VERIFIED' | 'REUPLOAD'>('VERIFIED');
   const [reason, setReason] = useState('');
   const [zoom, setZoom] = useState(false);
   const decide = useAction(decideVaccine);
-  const allMatch = matches.every(Boolean);
-  const hasItems = USE_MOCK || Boolean(v.verificationItems?.length);
+  const hasItems = Boolean(v.verificationItems?.length);
   const readonly = v.status !== 'OPERATOR_REVIEW';
 
   const onSubmit = async () => {
-    if (decision === 'VERIFIED' && (!allMatch || !fileReady || !hasItems)) return;
     const res = await decide.run(v.id, decision, decision === 'REUPLOAD' ? reason : undefined, v.verificationItems);
-    if (res.ok) onDone(decision === 'VERIFIED' ? `${v.dogName}의 예방접종을 ‘확인됨’으로 바꿨어요. 보호자에게 알림이 가요.` : `${v.dogName} 보호자에게 재제출을 요청했어요 (${reason}).`, res.data.nextDocId);
+    if (res.ok) onDone(decision === 'VERIFIED' ? `${v.dogName}의 서류 확인을 완료했어요.` : `${v.dogName} 보호자에게 재제출을 요청했어요 (${reason}).`, res.data.nextDocId);
   };
 
   return (
@@ -230,7 +224,7 @@ function Detail({ v, onDone, onNext, hasNext, onReloadFile }: { v: VaccineSubmis
               ))}
             </tbody>
           </table>
-          <span className={page.muted}>보호자가 고친 값은 서류와 다시 대조해 주세요.</span>
+          <span className={page.muted}>서류 확인 체크는 검토를 돕는 표시예요. 확인 완료를 누르기 전 원본을 직접 확인해 주세요.</span>
         </div>
       </div>
 
@@ -256,12 +250,11 @@ function Detail({ v, onDone, onNext, hasNext, onReloadFile }: { v: VaccineSubmis
             )}
             <span className={page.muted}>
               {decision === 'VERIFIED'
-                ? `확인 완료하면 ${v.dogName}의 예방접종 정보가 ‘확인됨’으로 바뀌고, 보호자에게 알림이 가요.`
+                ? `운영자가 직접 검토한 ${v.dogName}의 서류를 확인 완료로 처리해요.`
                 : '보호자에게 고른 사유와 함께 다시 올려 달라는 알림이 가요.'}
             </span>
           </fieldset>
-          {decision === 'VERIFIED' && (!fileReady || !hasItems) && <Notice tone="warning">첨부 서류와 유효한 접종 항목을 확인할 수 있어야 확인 완료할 수 있어요.</Notice>}
-          {decision === 'VERIFIED' && !allMatch && <Notice tone="warning">일치하지 않는 항목이 있어요. 모든 항목이 맞아야 확인 완료할 수 있어요. 다르면 재제출을 요청하세요.</Notice>}
+          {decision === 'VERIFIED' && !hasItems && <Notice tone="info">추출된 접종 항목이 없어도 서류 확인을 완료할 수 있어요. 백신·접종일은 자동 등록되지 않아요.</Notice>}
           {decide.error && (
             <Notice tone="danger" role="alert">
               {decide.error}
@@ -271,7 +264,7 @@ function Detail({ v, onDone, onNext, hasNext, onReloadFile }: { v: VaccineSubmis
             <Button variant="secondary" onClick={onNext} disabled={!hasNext}>
               다음 건 보기
             </Button>
-            <Button variant={decision === 'VERIFIED' ? 'success' : 'caution'} disabled={decide.pending || (decision === 'VERIFIED' ? !allMatch || !fileReady || !hasItems : !reason)} onClick={onSubmit}>
+            <Button variant={decision === 'VERIFIED' ? 'success' : 'caution'} disabled={decide.pending || (decision === 'REUPLOAD' && !reason)} onClick={onSubmit}>
               {decision === 'VERIFIED' ? '확인 완료 처리' : '재제출 요청 보내기'}
             </Button>
           </div>
