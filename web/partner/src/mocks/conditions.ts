@@ -15,12 +15,12 @@ export const MOCK_CONDITIONS: Record<string, PlaceConditionsDto> = {
       sizeLimit: null,
       restrictedBreeds: null,
       area: 'INDOOR_OK',
-      requiredItems: ['STROLLER', 'MANNER_BELT'],
+      requiredItems: ['STROLLER', 'LEASH'],
       vaccinationRequired: null,
     },
     unrestrictedFields: ['sizeLimit', 'restrictedBreeds'],
     pendingItems: [
-      { field: 'weightLimitKg', requestId: 'REQ-0142', status: 'IN_REVIEW' },
+      { field: 'sizeLimit', requestId: 'REQ-0142', status: 'IN_REVIEW' },
       { field: 'vaccinationRequired', requestId: 'REQ-0131', status: 'NEEDS_INFO' },
     ],
   },
@@ -36,7 +36,7 @@ export const MOCK_CONDITIONS: Record<string, PlaceConditionsDto> = {
       sizeLimit: null,
       restrictedBreeds: null,
       area: 'INDOOR_OK',
-      requiredItems: ['MANNER_BELT'],
+      requiredItems: ['LEASH'],
       vaccinationRequired: true,
     },
     unrestrictedFields: ['weightLimitKg', 'sizeLimit', 'restrictedBreeds'],
@@ -49,7 +49,8 @@ export const MOCK_CONDITIONS: Record<string, PlaceConditionsDto> = {
  * TODO: 테스트 반려견 수 · 값은 팀이 정하면 서버(F-WREQ-07)가 내려줘요.
  */
 export const SAMPLE_DOGS: SampleDog[] = [
-  { id: 'td_1', label: '4kg 말티즈 · 유모차 · 매너벨트 · 접종 확인', weightKg: 4, size: 'SMALL', breed: '말티즈', items: ['STROLLER', 'MANNER_BELT'], vaccinated: true },
-  { id: 'td_2', label: '9kg 푸들 · 매너벨트 · 접종 확인', weightKg: 9, size: 'MEDIUM', breed: '푸들', items: ['MANNER_BELT'], vaccinated: true },
+  { id: 'td_8', label: '8kg 믹스견 · 유모차 · 리드줄 · 접종 확인', weightKg: 8, size: 'SMALL', breed: '믹스견', items: ['STROLLER', 'LEASH'], vaccinated: true },
+  { id: 'td_1', label: '4kg 말티즈 · 유모차 · 리드줄 · 접종 확인', weightKg: 4, size: 'SMALL', breed: '말티즈', items: ['STROLLER', 'LEASH'], vaccinated: true },
+  { id: 'td_2', label: '9kg 푸들 · 리드줄 · 접종 확인', weightKg: 9, size: 'MEDIUM', breed: '푸들', items: ['LEASH'], vaccinated: true },
   { id: 'td_3', label: '15kg 시바견 · 준비물 없음', weightKg: 15, size: 'MEDIUM', breed: '시바견', items: [], vaccinated: false },
 ];

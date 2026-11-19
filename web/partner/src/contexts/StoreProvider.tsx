@@ -1,3 +1,4 @@
+import { canManageStore } from '@/api/stores';
 import { useMemo, useState, type ReactNode } from 'react';
 import { Navigate } from 'react-router-dom';
 import { getMyStores } from '@/api/stores';
@@ -30,12 +31,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       </div>
     );
   }
-  if (!list.data.some((s) => s.verification === 'APPROVED')) return <Navigate to="/signup/pending" replace />;
+  if (!list.data.some(canManageStore)) return <Navigate to="/signup/pending" replace />;
   return <StoreSelection stores={list.data}>{children}</StoreSelection>;
 }
 
 function StoreSelection({ stores, children }: { stores: Store[]; children: ReactNode }) {
-  const approved = stores.filter((s) => s.verification === 'APPROVED');
+  const approved = stores.filter(canManageStore);
   const [storeId, setStoreId] = useState(() => {
     const saved = readSavedId();
     return approved.some((s) => s.id === saved) ? (saved as string) : approved[0].id;

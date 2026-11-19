@@ -7,7 +7,7 @@ import { toId, type RawId } from './ids';
  * BE 정책은 '견종 · 준비물 · 예방접종' 세 목록뿐이고, 각 조건은 { code, required } 예요.
  * - 견종(BREED): code = 견종 ID (GET /breeds 의 breedId)
  * - 준비물(EQUIPMENT) · 예방접종(VACCINE): 영문 대문자 코드 (예: CARRIER · RABIES · DHPPL)
- * 동반 가능 · 체중 · 크기 · 이용 구역은 BE 정책에 없어요 (목업 화면에만 있어요).
+ * 동반 가능 · 실내외 체중 · 구역별 준비물 · 적용 시작일 · 공지 · 변경 사유는 conditions 에 있어요.
  */
 
 export type RuleGroup = 'breedRules' | 'equipmentRules' | 'vaccineRules';
@@ -18,7 +18,22 @@ export interface PolicyRule {
   code: string;
   required: boolean;
 }
+export interface AreaPolicy {
+  allowed?: boolean | null;
+  maxWeightKg?: number | null;
+  equipmentCodes: string[];
+}
+export interface EntryConditions {
+  petsAllowed?: boolean | null;
+  indoor?: AreaPolicy | null;
+  outdoor?: AreaPolicy | null;
+  effectiveFrom?: string | null;
+  notice?: string | null;
+  changeReason?: string | null;
+  vaccinationConfirmed?: boolean | null;
+}
 export interface RuleSet {
+  conditions?: EntryConditions | null;
   breedRules: PolicyRule[];
   equipmentRules: PolicyRule[];
   vaccineRules: PolicyRule[];
@@ -31,22 +46,26 @@ export interface StorePolicy extends RuleSet {
 }
 
 /** BE 예시 · 코드에서 확인한 코드만 이름을 붙여요. 나머지는 코드 그대로 보여 줘요 */
-export const KNOWN_CODE_LABEL: Record<string, string> = { CARRIER: '이동장', RABIES: '광견병', DHPPL: '종합백신(DHPPL)' };
+export const KNOWN_CODE_LABEL: Record<string, string> = { CARRIER: '이동장', STROLLER: '유모차', BELLY_BAND: '매너벨트', LEASH: '리드줄', RABIES: '광견병', DHPPL: '종합백신(DHPPL)' };
 export const CODE_RE = /^[A-Z][A-Z0-9_]{0,79}$/;
 
 export const EMPTY_RULES: RuleSet = { breedRules: [], equipmentRules: [], vaccineRules: [] };
 
 type RuleDto = { code?: string | null; required?: boolean | null };
-type PolicyDto = { policyId?: RawId; version?: number | null; breedRules?: RuleDto[] | null; equipmentRules?: RuleDto[] | null; vaccineRules?: RuleDto[] | null };
+type PolicyDto = { conditions?: EntryConditions | null; sourceText?: string | null; policyId?: RawId; version?: number | null; breedRules?: RuleDto[] | null; equipmentRules?: RuleDto[] | null; vaccineRules?: RuleDto[] | null };
 
 const toRules = (list: RuleDto[] | null | undefined): PolicyRule[] =>
   (list ?? []).flatMap((r) => (typeof r.code === 'string' && r.code ? [{ code: r.code, required: r.required !== false }] : []));
 
 export function toRuleSet(d: Partial<PolicyDto> | null | undefined): RuleSet {
-  return { breedRules: toRules(d?.breedRules), equipmentRules: toRules(d?.equipmentRules), vaccineRules: toRules(d?.vaccineRules) };
+  return { breedRules: toRules(d?.breedRules), equipmentRules: toRules(d?.equipmentRules), vaccineRules: toRules(d?.vaccineRules), conditions: d?.conditions };
 }
 
 /** 업체 현재 입장 정책 — GET /business/stores/{storeId}/policy. 아직 정책이 없으면(404) 빈 정책 · 버전 0 */
+export async function previewPolicy(storeId:string,policy:RuleSet):Promise<{before:string;after:string;example:string}>{
+  const {data}=await apiClient.post(`/business/stores/${encodeURIComponent(storeId)}/policy-preview`,toPolicyBody(policy));
+  return data;
+}
 export async function getStorePolicy(storeId: string): Promise<StorePolicy> {
   try {
     const { data } = await apiClient.get<PolicyDto>(`/business/stores/${encodeURIComponent(storeId)}/policy`);
@@ -74,11 +93,43 @@ export function getBreedNames(): Promise<Map<string, string>> {
 /** 정책을 BE 에 보낼 모양으로 — 세 목록을 모두 담아요 (BE 는 받은 정책으로 전체를 바꾸고, 빠진 목록은 비운 것으로 봐요) */
 export function toPolicyBody(r: RuleSet) {
   const clean = (list: PolicyRule[]) => list.map((x) => ({ code: x.code.trim(), required: x.required }));
-  return { breedRules: clean(r.breedRules), equipmentRules: clean(r.equipmentRules), vaccineRules: clean(r.vaccineRules) };
+  return { conditions: r.conditions, breedRules: clean(r.breedRules), equipmentRules: clean(r.equipmentRules), vaccineRules: clean(r.vaccineRules) };
 }
 
-const key = (r: RuleSet) => JSON.stringify(RULE_GROUPS.map((g) => [...r[g]].map((x) => `${x.code}:${x.required}`).sort()));
+const key = (r: RuleSet) => JSON.stringify([r.conditions, RULE_GROUPS.map((g) => [...r[g]].map((x) => `${x.code}:${x.required}`).sort())]);
 export const sameRules = (a: RuleSet, b: RuleSet) => key(a) === key(b);
+
+export interface ConditionChange {
+  label: string;
+  before: string;
+  after: string;
+}
+
+function areaText(a?: AreaPolicy | null) {
+  if (!a || a.allowed === false) return '이용 불가';
+  const weight = a.maxWeightKg ? `${a.maxWeightKg}kg 이하` : '체중 제한 없음';
+  const gear = (a.equipmentCodes ?? []).map((c) => KNOWN_CODE_LABEL[c] ?? c).join(', ') || '준비물 제한 없음';
+  return `${weight} · ${gear}`;
+}
+
+const CONDITION_ROWS: [string, (c: EntryConditions) => string][] = [
+  ['동반 여부', (c) => (c.petsAllowed === false ? '동반 불가' : '동반 가능')],
+  ['실내', (c) => areaText(c.indoor)],
+  ['야외 테라스', (c) => areaText(c.outdoor)],
+  ['적용 시작일', (c) => c.effectiveFrom ?? '승인일부터'],
+  ['공지 문장', (c) => c.notice?.trim() || '없음'],
+  ['예방접종 조건 확인', (c) => (c.vaccinationConfirmed ? '확인 완료' : '미확인')],
+];
+
+/** 구조화 조건에서 달라진 항목만 골라요 */
+export function diffConditions(before?: EntryConditions | null, after?: EntryConditions | null): ConditionChange[] {
+  if (!after) return [];
+  return CONDITION_ROWS.flatMap(([label, read]) => {
+    const prev = before ? read(before) : '지정 안 됨';
+    const next = read(after);
+    return prev === next ? [] : [{ label, before: prev, after: next }];
+  });
+}
 
 /**
  * 입장 조건 변경 요청 — POST /business/stores/{storeId}/condition-requests

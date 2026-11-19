@@ -10,6 +10,7 @@ struct PlaceCard: Decodable, Identifiable, Hashable, Sendable {
     let latitude: Double
     let longitude: Double
     let verdict: Verdict
+    var category: String? = nil
 
     var id: String { placeId }
     var coordinate: CLLocationCoordinate2D { .init(latitude: latitude, longitude: longitude) }
@@ -37,6 +38,17 @@ struct PlaceDetail: Decodable, Identifiable, Sendable {
     let policySource: String?
     let confirmedOn: String?        // "2026-09-25"
     let googleMapsUrl: String?
+    var category: String? = nil
+    var phoneNumber: String? = nil
+    var imageUrls: [String]? = nil
+    var businessHours: PlaceHours? = nil
+    var maxWeightKg: Double? = nil
+    var requiredEquipmentCodes: [String]? = nil
+    var conditions: PlaceConditions? = nil
+    var entryArea: String? = nil
+    var admissionConfirmed: Bool? = nil
+    var policyDetailsComplete: Bool? = nil
+    var maxWeightExclusive: Bool? = nil
 
     var id: String { placeId }
     var coordinate: CLLocationCoordinate2D { .init(latitude: latitude, longitude: longitude) }
@@ -59,6 +71,7 @@ struct EntryJudgmentRequest: Encodable, Sendable { let dogIds: [Int64] }
 /// 서버 판정 사유 코드 → 화면 표현
 enum ReasonCode: Hashable, Sendable {
     case policyUnconfirmed           // POLICY_UNCONFIRMED
+    case policyDetailsUnconfirmed    // Admission confirmed, conditions incomplete
     case petsNotAllowed              // PETS_NOT_ALLOWED
     case weightUnknown               // WEIGHT_UNKNOWN (반려견 체중 미입력)
     case weightExceeded              // WEIGHT_LIMIT_EXCEEDED
@@ -70,6 +83,7 @@ enum ReasonCode: Hashable, Sendable {
     init(_ raw: String) {
         switch raw {
         case "POLICY_UNCONFIRMED": self = .policyUnconfirmed
+        case "POLICY_DETAILS_UNCONFIRMED": self = .policyDetailsUnconfirmed
         case "PETS_NOT_ALLOWED": self = .petsNotAllowed
         case "WEIGHT_UNKNOWN": self = .weightUnknown
         case "WEIGHT_LIMIT_EXCEEDED": self = .weightExceeded
@@ -149,8 +163,31 @@ enum ConditionTable {
             ConditionRow(label: "동반 여부", placeRule: "가능", results: Array(repeating: .ok("충족"), count: count))
         ]
 
+        if detail.policyDetailsComplete == false || allReasons.contains(.policyDetailsUnconfirmed) {
+            let weightRule = detail.maxWeightKg.map {
+                "\(DogFormat.weight($0)) \(detail.maxWeightExclusive == true ? "미만" : "이하")"
+            } ?? "확인 필요"
+            rows.append(ConditionRow(label: "체중", placeRule: weightRule, results: perDog(dogs, count) { dog in
+                let r = judgments[dog?.dogId ?? -1] ?? []
+                if r.contains(.weightExceeded) { return .denied(dog?.weightKg.map(DogFormat.weight) ?? "초과") }
+                guard detail.maxWeightKg != nil, let weight = dog?.weightKg else { return .unknown }
+                return .ok(DogFormat.weight(weight))
+            }))
+            rows.append(ConditionRow(label: "견종", placeRule: "확인 필요", results: Array(repeating: .unknown, count: count)))
+            for code in detail.requiredEquipmentCodes ?? [] {
+                guard let item = Equipment(rawValue: code) else { continue }
+                rows.append(ConditionRow(label: item.title, placeRule: "필수", results: perDog(dogs, count) { dog in
+                    guard let dog else { return .unknown }
+                    return dog.equipment.contains(item) ? .ok("있음") : .prepare("없음")
+                }))
+            }
+            rows.append(ConditionRow(label: "그 외 준비물", placeRule: "확인 필요", results: Array(repeating: .unknown, count: count)))
+            rows.append(ConditionRow(label: "예방접종", placeRule: "확인 필요", results: Array(repeating: .unknown, count: count)))
+            return rows
+        }
+
         // 체중
-        let weightRule = unrestricted.contains("WEIGHT") ? "제한 없음" : "체중 제한 있음"
+        let weightRule = detail.maxWeightKg.map { "\(DogFormat.weight($0)) 이하" } ?? (unrestricted.contains("WEIGHT") ? "제한 없음" : "체중 제한 있음")
         rows.append(ConditionRow(label: "체중", placeRule: weightRule, results: perDog(dogs, count) { dog in
             let r = judgments[dog?.dogId ?? -1] ?? []
             let w = dog?.weightKg.map(DogFormat.weight)
@@ -273,5 +310,42 @@ enum Josa {
     static func and(_ names: [String]) -> String {
         guard names.count > 1 else { return names.first ?? "" }
         return names.dropLast().map { with($0) }.joined(separator: " ") + " " + names.last!
+    }
+}
+
+struct PlaceConditions: Decodable, Sendable {
+    struct Area: Decodable, Sendable { let allowed: Bool?; let maxWeightKg: Double?; let equipmentCodes: [String]? }
+    let petsAllowed: Bool?
+    let indoor: Area?
+    let outdoor: Area?
+    let effectiveFrom: String?
+    let notice: String?
+}
+enum PlaceHours: Decodable, Sendable {
+    struct Day: Decodable, Sendable {
+        let dayOfWeek: String
+        let openTime: String?
+        let closeTime: String?
+        let closed: Bool
+    }
+    case text(String), weekly([Day])
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if let text = try? c.decode(String.self) { self = .text(text) }
+        else { self = .weekly(try c.decode([Day].self)) }
+    }
+    var display: String {
+        switch self {
+        case .text(let value): return value
+        case .weekly(let days):
+            let names = ["MONDAY":"월", "TUESDAY":"화", "WEDNESDAY":"수", "THURSDAY":"목", "FRIDAY":"금", "SATURDAY":"토", "SUNDAY":"일"]
+            return days.map { "\(names[$0.dayOfWeek] ?? $0.dayOfWeek) \($0.closed ? "휴무" : "\($0.openTime ?? "–")–\($0.closeTime ?? "–")")" }.joined(separator: " · ")
+        }
+    }
+}
+
+enum PlaceCategory {
+    static func title(_ code: String) -> String {
+        ["CAFE":"카페", "FOOD":"음식점", "CULTURE":"문화공간", "ATTRACTION":"관광지", "PARK":"공원", "LODGING":"숙소", "LEISURE":"레저", "SHOPPING":"쇼핑", "EVENT":"행사"][code] ?? "장소"
     }
 }

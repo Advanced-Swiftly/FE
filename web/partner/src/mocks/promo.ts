@@ -12,7 +12,7 @@ export const MOCK_EVENTS: EventBaseDto[] = [
   {
     eventId: 'ev_2027q1',
     periodId: '2027Q1',
-    title: '2027년 1분기 댕댕로드',
+    title: '서울숲 겨울 산책 스탬프',
     phase: 'RECRUITING',
     period: { startDate: '2027-01-01', endDate: '2027-03-31' },
     recruitment: { startAt: '2026-12-25T00:00:00+09:00', endAt: '2027-01-01T00:00:00+09:00' },
@@ -23,7 +23,7 @@ export const MOCK_EVENTS: EventBaseDto[] = [
   {
     eventId: 'ev_2026q4',
     periodId: '2026Q4',
-    title: '2026년 4분기 댕댕로드',
+    title: '성수 가을 스탬프 투어',
     phase: 'IN_PROGRESS',
     period: { startDate: '2026-10-01', endDate: '2026-12-31' },
     recruitment: { startAt: '2026-09-24T00:00:00+09:00', endAt: '2026-10-01T00:00:00+09:00' },
@@ -70,7 +70,7 @@ export const MOCK_APPLICATIONS: ApplicationDto[] = [
     stampRoad: {
       eventId: 'ev_2026q4',
       periodId: '2026Q4',
-      title: '2026년 4분기 댕댕로드',
+      title: '성수 가을 스탬프 투어',
       period: { startDate: '2026-10-01', endDate: '2026-12-31' },
       recruitment: { startAt: '2026-09-24T00:00:00+09:00', endAt: '2026-10-01T00:00:00+09:00' },
       intro: '산책 중 잠깐 쉬어 가요. 물그릇 준비돼 있어요.',
@@ -125,14 +125,3 @@ export const MOCK_EVENT_STATS: Record<string, EventStatsDto> = {
     ],
   },
 };
-
-// 같은 숫자 ID 1502 의 이벤트 · 광고 신청 (종류로 구분하는지 확인용)
-{
-  const ad = MOCK_APPLICATIONS.find((a) => a.type === 'AD');
-  const ev = MOCK_APPLICATIONS.find((a) => a.type === 'STAMP_ROAD');
-  // 요청 목록(mocks/requests.ts)의 1502 두 줄과 접수 시각 · 이력을 맞춰요
-  const adAt = '2026-11-10T10:05:00+09:00';
-  const evAt = '2026-11-10T10:00:00+09:00';
-  if (ad) MOCK_APPLICATIONS.push({ ...structuredClone(ad), applicationId: '1502', status: 'RECEIVED', submittedAt: adAt, history: [{ at: adAt, status: 'RECEIVED', by: 'BUSINESS' }], canCancel: true });
-  if (ev) MOCK_APPLICATIONS.push({ ...structuredClone(ev), applicationId: '1502', status: 'RECEIVED', displayStatus: 'RECEIVED', submittedAt: evAt, history: [{ at: evAt, status: 'RECEIVED', by: 'BUSINESS' }], canCancel: true });
-}

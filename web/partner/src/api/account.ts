@@ -1,3 +1,4 @@
+import { getMyStores } from './stores';
 import { MOCK_ACCOUNT, MOCK_TERMS, MOCK_VERIFICATIONS } from '@/mocks/inquiries';
 import { BUSINESS_CATEGORY_LABEL, type Account, type BusinessCategory, type BusinessLookup, type SignupStatus, type Term } from '@/types';
 import { apiClient, mockResponse, USE_MOCK } from './client';
@@ -32,6 +33,7 @@ interface LoginResponseDto {
 }
 /** 내 프로필 조회 응답 (GET /users/me) — placeCounts 는 이전 명세 값이라 올 때만 써요 */
 interface MeDto {
+  loginId?: string | null;
   userId?: string | number;
   role?: string;
   name: string | null;
@@ -98,13 +100,13 @@ export async function login(loginId: string, password: string, keep = true): Pro
     return saveAuth(await mockResponse(res, 400), keep);
   }
   // 공통 로그인 — POST /auth/login { phoneNumber, password } → { user: { userId, role, name }, accessToken, refreshToken }
-  const { data } = await apiClient.post<LoginResponseDto>('/auth/login', { phoneNumber: digitsOnly(loginId), password });
+  const { data } = await apiClient.post<LoginResponseDto>('/auth/login', { ...(loginId.includes('@') ? {loginId:loginId.trim()} : {phoneNumber:digitsOnly(loginId)}), password });
   if (data.user?.role !== 'BUSINESS') {
     // 업체 관리자 계정이 아니면 받은 토큰을 바로 무효화하고 로그인하지 않아요
     await apiClient.post('/auth/logout', { refreshToken: data.refreshToken }, { headers: { Authorization: `Bearer ${data.accessToken}` } }).catch(() => undefined);
     throw mockError('ROLE_NOT_ALLOWED');
   }
-  setSession({ accessToken: data.accessToken, refreshToken: data.refreshToken, role: 'BUSINESS', loginId: data.user.name || digitsOnly(loginId) }, keep);
+  setSession({ accessToken: data.accessToken, refreshToken: data.refreshToken, role: 'BUSINESS', loginId: loginId.trim() }, keep);
   try {
     return await refreshPartnerState();
   } catch (e) {
@@ -229,6 +231,7 @@ export async function createAccount(form: SignupAccountForm): Promise<Session> {
   const body = {
     phoneVerificationToken: form.verificationToken,
     name: form.name,
+    ...(form.loginId.trim() ? {loginId:form.loginId.trim()} : {}),
     password: form.password,
     termAgreements: form.agreements.map((a) => ({ termId: a.termId ?? a.code, agreed: a.agreed })),
   };
@@ -486,14 +489,25 @@ export async function getVerifications(): Promise<SignupStatus[]> {
 export async function getAccount(): Promise<Account> {
   const loginId = getSession()?.loginId ?? '';
   if (USE_MOCK) return mockResponse({ ...MOCK_ACCOUNT, loginId: loginId || MOCK_ACCOUNT.loginId });
-  const { data } = await apiClient.get<MeDto>('/users/me');
+  // 업체 목록 · 인증 요청을 못 불러와도 계정 정보는 보여 주고, 해당 칸만 '확인할 수 없어요'로 둬요 (0건으로 채우지 않아요)
+  const [{ data }, linked, verifications] = await Promise.all([
+    apiClient.get<MeDto>('/users/me'),
+    getMyStores().catch(() => null),
+    apiClient
+      .get<{ items?: { status?: string | null }[] | null }>('/business/verifications')
+      .then((r) => r.data?.items ?? [])
+      .catch(() => null),
+  ]);
+  const countOf = (...statuses: string[]) => (verifications ?? []).filter((v) => statuses.includes(v.status ?? '')).length;
   const counts = data.placeCounts;
   return {
     name: data.name ?? '',
-    loginId,
+    loginId: data.loginId ?? loginId,
     phone: data.phoneNumber ?? data.phone ?? '',
     // 연결된 업체 수는 이 응답의 예시에 없어요. 오면 쓰고, 없으면 null (0 으로 채우지 않아요)
     stores: counts ? { total: counts.approved + counts.pending, approved: counts.approved, pending: counts.pending } : null,
+    storeLinks: linked ? linked.map((s) => ({ id: s.id, name: s.name, visibility: s.visibility ?? null })) : null,
+    verificationCounts: verifications ? { approved: countOf('APPROVED'), inReview: countOf('RECEIVED', 'IN_REVIEW'), needsInfo: countOf('NEEDS_SUPPLEMENT', 'NEEDS_INFO'), rejected: countOf('REJECTED') } : null,
   };
 }
 
@@ -525,9 +539,8 @@ export async function changePassword(currentPassword: string, newPassword: strin
     await mockResponse(null);
     return;
   }
-  // 실제 BE 에 비밀번호 변경 API 가 없어요 (백엔드 확인 사항) — 없는 경로로 보내지 않아요
-  void newPassword;
-  throw mockError('FIELD_NOT_SUPPORTED', { field: 'password' });
+  await apiClient.patch('/users/me/password',{currentPassword,newPassword});
+  clearSession();
 }
 
 /** 탈퇴 — 성공하면 로그인도 지워요 */

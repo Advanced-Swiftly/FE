@@ -8,6 +8,9 @@ interface VisitStatsDto {
   totalVisits?: number | null;
   stampAwards?: number | null;
   series?: { date: string; visits: number }[] | null;
+  guardianCount?: number | null;
+  dailyAverage?: number | null;
+  byHour?: { hour: number; count: number }[] | null;
 }
 
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
@@ -28,7 +31,12 @@ function previousRange(from: string, to: string) {
 
 export async function fetchVisitStats(storeId: string, from: string, to: string): Promise<VisitStatsDto> {
   const { data } = await apiClient.get<VisitStatsDto>(`/business/stores/${encodeURIComponent(storeId)}/visit-stats`, { params: { from, to, groupBy: 'DAY' } });
-  return data ?? {};
+  const counts=new Map((data?.series ?? []).map(x=>[x.date,x.visits]));
+  const series:{date:string;visits:number}[]=[];
+  for(let day=new Date(`${from}T00:00:00Z`);day.toISOString().slice(0,10)<=to;day=new Date(day.getTime()+86400000)){
+    const date=day.toISOString().slice(0,10);series.push({date,visits:counts.get(date) ?? 0});
+  }
+  return {...data,series};
 }
 
 function toSummary(d: VisitStatsDto, from: string, to: string): VisitSummary {
@@ -36,7 +44,7 @@ function toSummary(d: VisitStatsDto, from: string, to: string): VisitSummary {
   return {
     qrVisitCount: total,
     // 인증한 보호자 수는 이 API 에 없어요
-    guardianCount: null,
+    guardianCount: num(d.guardianCount),
     dailyAverage: total === null ? null : Math.round((total / Math.max(1, dayCount(from, to))) * 10) / 10,
     stampCount: num(d.stampAwards),
   };
@@ -61,7 +69,7 @@ export async function getVisitStats(storeId: string, period: StatsPeriod | { fro
     summary: toSummary(cur, from, to),
     previous: before ? { ...toSummary(before, prev.from, prev.to), ...prev } : null,
     // 시간대별 방문은 이 API 에 없어요
-    byHour: null,
+    byHour: cur.byHour ?? null,
   };
 }
 

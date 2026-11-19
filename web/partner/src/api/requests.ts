@@ -56,7 +56,19 @@ export function toRequestStatus(s: string | null | undefined): RequestStatus | n
 }
 const AD_TYPE_LABEL: Record<string, string> = { RECOMMENDED: '지도 추천 노출', BANNER: '배너' };
 
-type ListItemDto = { requestId?: RawId; applicationId?: RawId; status?: string; kind?: string; eventId?: RawId; adType?: string; submittedAt?: string | null; createdAt?: string | null };
+const OPERATOR_KIND_LABEL: Record<string, string> = { OPERATOR_DIRECT: '운영자 직접 변경', RECHECK: '운영자 재확인 요청', AI_CANDIDATE: '운영자 검토 후보' };
+
+/** 업체가 보낸 요청(CONDITION_REQUEST)이 아니면 이름을 돌려줘요. 이런 건은 서버 상세 조회가 본인 요청만 허용해서 열 수 없어요 */
+const operatorLabel = (kind?: string | null) => (!kind || kind === 'CONDITION_REQUEST' ? null : (OPERATOR_KIND_LABEL[kind] ?? '운영자 처리 건'));
+
+/** 정책 원문을 목록용 한 줄로 줄여요 (빈 값이면 null) */
+export function sourcePreview(text?: string | null, max = 40) {
+  const line = (text ?? '').replace(/\s+/g, ' ').trim();
+  if (!line) return null;
+  return line.length > max ? `${line.slice(0, max)}…` : line;
+}
+
+type ListItemDto = { sourceText?: string | null; requestId?: RawId; applicationId?: RawId; status?: string; kind?: string; eventId?: RawId; adType?: string; submittedAt?: string | null; createdAt?: string | null };
 
 /**
  * 요청 처리 현황 — 세 목록 API 를 각각 불러요 (현재 매장 기준)
@@ -79,17 +91,58 @@ async function getSplitRequestPage(storeId: string, type: RequestTypeFilter, sta
     const id = toId(kind === 'CONDITION' ? d.requestId : d.applicationId);
     const st = toRequestStatus(d.status);
     if (!id || !st) return null;
-    const summaryText = appKind === 'EVENT' ? `댕댕로드 참여 신청${toId(d.eventId) ? ` · 이벤트 ${toId(d.eventId)}` : ''}` : appKind === 'AD' ? `광고 신청${d.adType ? ` · ${AD_TYPE_LABEL[d.adType] ?? d.adType}` : ''}` : '입장 조건 변경 요청';
+    const byOperator = kind === 'CONDITION' ? operatorLabel(d.kind) : null;
+    const summaryText = appKind === 'EVENT' ? `댕댕로드 참여 신청${toId(d.eventId) ? ` · 이벤트 ${toId(d.eventId)}` : ''}` : appKind === 'AD' ? `광고 신청${d.adType ? ` · ${AD_TYPE_LABEL[d.adType] ?? d.adType}` : ''}` : (byOperator ?? '입장 조건 변경 요청');
     // 목록 응답에 접수 시각이 없으면 빈 값 (화면은 '–')
-    return { id, storeId, kind, appKind, status: st, group: IN_PROGRESS.includes(st) ? 'IN_PROGRESS' : 'DONE', summaryText, submittedAt: d.submittedAt ?? d.createdAt ?? '' };
+    return { id, storeId, kind, appKind, status: st, group: IN_PROGRESS.includes(st) ? 'IN_PROGRESS' : 'DONE', summaryText, submittedAt: d.submittedAt ?? d.createdAt ?? '', sourcePreview: kind === 'CONDITION' ? sourcePreview(d.sourceText) : null, operatorLabel: byOperator, eventId: appKind === 'EVENT' ? toId(d.eventId) : null };
   };
-  const items = [
+  const all = [
     ...cond.map((d) => row(d, 'CONDITION')),
     ...events.map((d) => row(d, 'EVENT_AD', 'EVENT')),
     ...ads.map((d) => row(d, 'EVENT_AD', 'AD')),
-  ].filter((x): x is PartnerRequest => x !== null && (status === 'ALL' || x.group === status));
+  ].filter((x): x is PartnerRequest => x !== null);
+  const items = all.filter(x=>status==='ALL'||x.group===status);
+  const summary={inProgress:all.filter(x=>x.group==='IN_PROGRESS').length,needsAction:all.filter(x=>x.status==='NEEDS_INFO'&&!x.operatorLabel).length,done:all.filter(x=>x.group==='DONE').length,avgProcessingDays:null};
   // 대시보드처럼 개수를 정해 부르면 그만큼만 (세 목록을 합친 정렬 기준이 없어 받은 순서 그대로)
-  return { summary: null, items: limit ? items.slice(0, limit) : items, nextCursor: null };
+  return { summary, items: await withEventTitles(storeId, limit ? items.slice(0, limit) : items), nextCursor: null };
+}
+
+/** 이벤트 신청 줄에 이벤트 이름을 붙여요 (신청의 eventId · 매장 ID 기준). 못 찾으면 이벤트 번호를 그대로 둬요 */
+async function withEventTitles(storeId: string, items: PartnerRequest[]) {
+  const ids = [...new Set(items.flatMap((x) => (x.appKind === 'EVENT' && x.eventId ? [x.eventId] : [])))];
+  const entries = await Promise.all(
+    ids.map(async (id) => {
+      const title = await apiClient
+        .get<{ title?: string | null }>(`/business/events/${enc(id)}`, { params: { placeId: storeId } })
+        .then((r) => r.data?.title ?? null)
+        .catch(() => null);
+      return [id, title] as const;
+    }),
+  );
+  const titles = new Map(entries);
+  return items.map((x) => {
+    const title = x.eventId ? titles.get(x.eventId) : null;
+    return title ? { ...x, summaryText: `${title} 참여 신청` } : x;
+  });
+}
+
+/** 진행 중인 입장 조건 변경 요청 (접수 · 검토 중 · 보완 요청) — 새로고침해도 서버 값으로 다시 보여 줘요 */
+export async function getPendingConditionRequests(storeId: string): Promise<PartnerRequest[]> {
+  const lists = await Promise.all(
+    ['RECEIVED', 'IN_REVIEW', 'NEEDS_SUPPLEMENT'].map((status) =>
+      apiClient.get<{ items?: ListItemDto[] | null }>(`/business/stores/${enc(storeId)}/condition-requests`, { params: { status } }).then((r) => r.data?.items ?? []),
+    ),
+  );
+  return lists
+    .flat()
+    .filter((d) => !operatorLabel(d.kind))
+    .flatMap((d): PartnerRequest[] => {
+      const id = toId(d.requestId);
+      const status = toRequestStatus(d.status);
+      if (!id || !status) return [];
+      return [{ id, storeId, kind: 'CONDITION', status, group: 'IN_PROGRESS', summaryText: '입장 조건 변경 요청', submittedAt: d.submittedAt ?? d.createdAt ?? '', sourcePreview: sourcePreview(d.sourceText) }];
+    })
+    .sort((a, b) => Number(b.id) - Number(a.id));
 }
 
 /** F-WREQ-01 한 페이지. 대시보드 최근 요청은 limit=3 (명세) */
@@ -122,6 +175,8 @@ export async function getRequestPage(storeId: string, opts: { type?: RequestType
 // ─── F-WREQ-04 요청 상세 ─────────────────────────────
 
 export interface ConditionRequestDetailDto {
+  /** 목업 요청의 적용 시작일 · 공지 문장 · 변경 사유 */
+  requestNote?: import('@/types').ConditionRequestNote;
   /** 문자('REQ-0131') · 숫자(1301) 모두 받아요 */
   requestId: RawId;
   /** 매장 ID — 이전 명세 placeId · API 문서 storeId */
@@ -139,6 +194,9 @@ export interface ConditionRequestDetailDto {
   reason?: string | null;
   /** 백엔드 API 문서의 보완 · 반려 사유 */
   reviewComment?: string | null;
+  sourceText?: string | null;
+  evidenceUrls?: string[];
+  requestedPolicy?: import('./policy').RuleSet;
   history?: RequestHistory[] | null;
   canCancel?: boolean;
   canResubmit?: boolean;
@@ -166,7 +224,8 @@ export function toRequestDetail(d: ConditionRequestDetailDto): ConditionRequestD
     baseChanged: d.baseChanged === true,
     // 상세 응답 예시는 { requestId, status, reviewComment } 뿐이라 없는 목록은 빈 값, 가능 여부는 열지 않는 쪽으로 받아요
     changes: (d.changes ?? []).map((c) => ({ ...c, field: c.field as ConditionField })),
-    evidences: (d.evidences ?? []).map(toAttachment),
+    evidences: (d.evidences ?? d.evidenceUrls?.map(url => ({kind: 'FILE' as const, url} as const)) ?? []).map(toAttachment),
+    sourceText: d.sourceText, requestedPolicy: d.requestedPolicy, requestNote: d.requestNote,
     reason: d.reason ?? d.reviewComment ?? null,
     history: d.history ?? [],
     // 가능 여부가 응답에 없으면 BE 규칙대로 정해요 (ConditionRequest.canCancel: 접수 · 보완 요청 / canResubmit: 보완 요청)

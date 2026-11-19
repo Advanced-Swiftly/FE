@@ -1,3 +1,4 @@
+import type { Inquiry } from '@/types';
 import { USE_MOCK } from '@/api/client';
 import { useRef, useState, type FormEvent } from 'react';
 import { createInquiry, getFaqs, getInquiryPage } from '@/api/inquiries';
@@ -22,14 +23,37 @@ import styles from './InquiryPage.module.css';
 
 const MAX_FILES = 3;
 
+/** 문의에 연결한 신청 · 첨부 — 상세를 다시 불러올 때 받은 값으로 보여 줘요 */
+function InquiryLinks({ q }: { q: Inquiry }) {
+  const r = q.relatedRequest;
+  const attachments = q.attachments ?? [];
+  if (!r && attachments.length === 0) return null;
+  const relatedName = r?.kind === 'CONDITION' ? '입장 조건 요청' : r?.appKind === 'AD' ? '광고 신청' : r?.appKind === 'EVENT' ? '이벤트 신청' : '신청';
+  return (
+    <span className={styles.links}>
+      {r && (
+        <span>
+          관련 {relatedName} #{r.id}
+        </span>
+      )}
+      {attachments.map((a) => (
+        <a key={a.href} href={a.href} target="_blank" rel="noopener noreferrer">
+          {a.name}
+        </a>
+      ))}
+    </span>
+  );
+}
+
 export function InquiryPage() {
   const store = useOptionalStore();
   const inquiries = useCursorList('inquiries', (cursor) => getInquiryPage({ cursor }));
   // 자주 묻는 질문 API 는 실제 BE 에 없어서 서버 모드에서는 부르지 않고 칸도 숨겨요
-  const faqs = useFetch(`faqs:${USE_MOCK}`, () => (USE_MOCK ? getFaqs() : Promise.resolve([])));
+  const faqs = useFetch(`faqs:${USE_MOCK}`, getFaqs);
   // 관련 신청 고르기: 승인된 매장이 있을 때만, 진행 중인 요청 (F-WREQ-01 status=IN_PROGRESS 첫 페이지)
   const requests = useFetch(`requests:${store?.id ?? 'none'}:open`, () =>
-    store ? getRequestPage(store.id, { status: 'IN_PROGRESS', limit: 50 }).then((r) => r.items) : Promise.resolve([]),
+    // 운영자가 처리한 건은 내 요청이 아니라 문의에 연결할 수 없어요
+    store ? getRequestPage(store.id, { status: 'IN_PROGRESS', limit: 50 }).then((r) => r.items.filter((x) => !x.operatorLabel)) : Promise.resolve([]),
   );
   const submit = useAction(createInquiry);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -49,7 +73,7 @@ export function InquiryPage() {
 
   const openRequests = requests.data ?? [];
   // 서버 모드는 제목이 필수예요 (BE InquiryCreateRequest.title @NotBlank)
-  const valid = type !== null && body.trim().length >= 10 && (USE_MOCK || (title.trim().length > 0 && !badUrl && urls.length <= 5));
+  const valid = type !== null && body.trim().length >= 10 && (USE_MOCK || (title.trim().length > 0 && !badUrl && urls.length + files.length <= 5));
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -58,7 +82,7 @@ export function InquiryPage() {
     // 'KIND:APPKIND:ID' — 같은 숫자 ID 의 이벤트 · 광고 신청도 따로 골라요
     const [kind, appKind, ...idParts] = related.split(':');
     const relatedRequest: RelatedRequest | null =
-      related && USE_MOCK ? { kind: kind as RelatedRequest['kind'], ...(appKind ? { appKind: appKind as RelatedRequest['appKind'] } : {}), id: idParts.join(':') } : null;
+      related ? { kind: kind as RelatedRequest['kind'], ...(appKind ? { appKind: appKind as RelatedRequest['appKind'] } : {}), id: idParts.join(':') } : null;
     const res = await submit.run({ type: type as InquiryType, relatedRequest, title, content: body, placeId: store?.id ?? null }, files, USE_MOCK ? [] : urls);
     if (!res.ok) return;
     setTitle('');
@@ -102,7 +126,7 @@ export function InquiryPage() {
           </fieldset>
 
 {/* 서버 문의 API(POST /inquiries)에는 관련 신청 필드가 없어 서버 모드에서는 숨겨요 */}
-          {USE_MOCK && (
+          {(
                     <Field
             label={
               <>
@@ -177,22 +201,18 @@ export function InquiryPage() {
                 </>
               }
               htmlFor="inq-urls"
-              hint={`사진 · 파일이 올라가 있는 https 주소를 한 줄에 하나씩, 5개까지 적어 주세요 (${urls.length}/5). 서버에 파일 업로드 기능이 아직 없어요.`}
-              message={badUrl ? { tone: 'error', text: `https 주소인지 확인해 주세요: ${badUrl}` } : urls.length > 5 ? { tone: 'error', text: '첨부 주소는 5개까지예요' } : null}
+              hint={`사진 · 파일이 올라가 있는 https 주소를 한 줄에 하나씩 적어 주세요. 직접 첨부한 파일과 합쳐 5개까지예요 (${urls.length + files.length}/5).`}
+              message={badUrl ? { tone: 'error', text: `https 주소인지 확인해 주세요: ${badUrl}` } : urls.length + files.length > 5 ? { tone: 'error', text: '파일과 주소를 합쳐 5개까지 첨부할 수 있어요' } : null}
             >
               <TextArea id="inq-urls" rows={2} value={urlText} onChange={(e) => setUrlText(e.target.value)} />
             </Field>
           )}
           {submit.error && <Notice tone="danger" role="alert">{submit.error}</Notice>}
           <div className={page.actionsBetween}>
-            {USE_MOCK ? (
               <Button variant="secondary" disabled={files.length >= MAX_FILES} onClick={() => fileInput.current?.click()}>
                 <Icon name="upload" />
                 사진 · 파일 첨부 {files.length > 0 && `(${files.length}/${MAX_FILES})`}
               </Button>
-            ) : (
-              <span />
-            )}
             <Button type="submit" disabled={submit.pending}>
               {submit.pending ? '보내는 중…' : '문의 보내기'}
             </Button>
@@ -218,6 +238,7 @@ export function InquiryPage() {
                         <span className={styles.qTitle}>{q.title ?? q.content.slice(0, 40)}</span>
                       </summary>
                       <p className={styles.question}>{q.content}</p>
+                      <InquiryLinks q={q} />
                       <div className={styles.answer}>
                         <span>운영팀 답변 · {formatDate(q.answer.answeredAt, true)}</span>
                         <p>{q.answer.content}</p>
@@ -233,6 +254,7 @@ export function InquiryPage() {
                       <Tag tone="yellow">답변 대기</Tag>
                     </span>
                     <span className={styles.qTitle}>{q.title ?? q.content.slice(0, 40)}</span>
+                    <InquiryLinks q={q} />
                   </li>
                 ),
               )}
@@ -246,7 +268,7 @@ export function InquiryPage() {
             )}
           </Card>
 
-          {USE_MOCK && (
+          {(
           <Card title="자주 묻는 질문">
             <LoadState status={faqs.status} errorText={faqs.error?.message} onRetry={faqs.reload} />
             {faqs.data?.length === 0 && <p className={page.muted}>등록된 질문이 없어요.</p>}

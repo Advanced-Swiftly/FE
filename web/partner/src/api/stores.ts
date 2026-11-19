@@ -4,7 +4,6 @@ import { MOCK_CONDITIONS } from '@/mocks/conditions';
 import { MOCK_REQUESTS } from '@/mocks/requests';
 import { MOCK_DASHBOARD, MOCK_STORES } from '@/mocks/stores';
 import { apiClient, mockResponse, USE_MOCK } from './client';
-import { fetchVisitStats } from './stats';
 import { mockError } from './errors';
 import { toId, type RawId } from './ids';
 
@@ -24,13 +23,16 @@ interface StoreItemDto {
  * 승인 대기 매장(업체 인증 진행 중)은 이 응답에 없어요 — 출처는 백엔드 확인 사항.
  * ID 가 없는 줄은 고를 수 없어서 빼요.
  */
+/** 이 매장을 고르고 관리할 수 있는지 — 실제 권한은 요청마다 서버가 다시 확인해요 */
+export const canManageStore = (s: Pick<Store, 'verification'>) => s.verification !== 'PENDING';
+
 export async function getMyStores(): Promise<Store[]> {
   if (USE_MOCK) return mockResponse(MOCK_STORES);
   const { data } = await apiClient.get<{ stores?: StoreItemDto[] | null }>('/business/stores');
   return (data?.stores ?? []).flatMap((s) => {
     const id = toId(s.storeId);
     if (!id) return [];
-    return [{ id, name: s.name ?? '', area: null, category: null, verification: 'APPROVED' as const, visibility: s.visibility ?? null }];
+    return [{ id, name: s.name ?? '', area: null, category: null, verification: 'LINKED' as const, visibility: s.visibility ?? null }];
   });
 }
 
@@ -43,17 +45,8 @@ export async function getDashboard(placeId: string): Promise<DashboardSummary> {
     const inProgressRequestCount = MOCK_REQUESTS.filter((r) => r.placeId === placeId && IN_PROGRESS_STATUSES.includes(r.status)).length;
     return mockResponse({ ...d, inProgressRequestCount, conditionCheckedAt: MOCK_CONDITIONS[placeId]?.conditionCheckedAt ?? d.conditionCheckedAt });
   }
-  // 관리 업체 상세 조회 (GET /business/stores/{storeId}) + 이번 달 방문 인증 통계로 채워요.
-  // 진행 중 요청 수 · 조건 확인일은 두 응답에 없어 null ('–') 이에요.
-  const today = new Date();
-  const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  const from = ymd(new Date(today.getFullYear(), today.getMonth(), 1));
-  const [, month] = await Promise.all([
-    apiClient.get<{ storeId?: RawId; name?: string; policyVersion?: number; qrStatus?: string }>(`/business/stores/${encodeURIComponent(placeId)}`),
-    fetchVisitStats(placeId, from, ymd(today)),
-  ]);
-  const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
-  return { placeId, qrVisitCount: n(month.totalVisits), stampCount: n(month.stampAwards), inProgressRequestCount: null, conditionCheckedAt: null };
+  const { data } = await apiClient.get<DashboardSummary>(`/business/stores/${encodeURIComponent(placeId)}/dashboard`);
+  return { ...data, placeId };
 }
 
 /** 업체 QR 조회 응답 (PawFit_Web_API '업체 QR 조회') */

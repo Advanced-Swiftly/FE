@@ -131,7 +131,10 @@ export function PromoPage() {
             <ul className={styles.list}>
               {apps.items.map((a) => (
                 <li key={`${a.appKind ?? ""}:${a.id}`}>
-                  <button type="button" className={styles.row} onClick={() => setModal({ kind: 'application', id: a.id, ids: apps.items.filter((x) => x.appKind === a.appKind).map((x) => x.id), appKind: a.appKind })}>
+                  <button type="button" className={styles.row} onClick={() => {
+                    const rows = apps.items.filter((x) => x.appKind === a.appKind);
+                    setModal({ kind: 'application', id: a.id, ids: rows.map((x) => x.id), appKind: a.appKind, context: Object.fromEntries(rows.map((x) => [x.id, { eventId: x.eventId, storeId: x.storeId }])) });
+                  }}>
                     <span className={styles.date}>{formatDate(a.submittedAt)}</span>
                     <span className={styles.kind}>
                       <Tag tone="orange">{a.appKind === 'AD' ? '광고' : a.appKind === 'EVENT' ? '이벤트' : '이벤트 · 광고'}</Tag>

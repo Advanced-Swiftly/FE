@@ -1,3 +1,4 @@
+import { adPeriodWeeks } from '@/utils/promo';
 import { MOCK_CONDITIONS } from '@/mocks/conditions';
 import { MOCK_APPLICATIONS, MOCK_EVENT_NOW, MOCK_EVENT_STATS, MOCK_EVENTS } from '@/mocks/promo';
 import { MOCK_REQUESTS } from '@/mocks/requests';
@@ -72,6 +73,8 @@ interface EventListDto {
   participating: ParticipatingEventDto[];
 }
 interface EventDetailDto extends EventBaseDto {
+  regionOptions?: {id:string;name:string}[];
+  prizes?: {name:string;quantity:number;rank:number}[];
   applicablePlaces: { placeId: string; name: string }[];
   placeId: string;
   myApplication: { applicationId: string; status: RequestStatus; displayStatus: RequestStatus; rejectReason?: string | null } | null;
@@ -97,7 +100,7 @@ export interface ApplicationDto {
   status: RequestStatus;
   displayStatus?: RequestStatus;
   submittedAt: string;
-  ad?: { region: Area; startDate: string; weeks: number; endDate: string };
+  ad?: { region: Area; startDate: string; weeks: number | null; endDate: string };
   stampRoad?: {
     eventId: string;
     periodId: string;
@@ -149,6 +152,7 @@ const toParticipating = (d: ParticipatingEventDto): ParticipatingEvent => ({
   approvedAt: d.approvedAt,
 });
 const toEvent = (d: EventDetailDto): StampRoadEvent => ({
+  regionOptions:d.regionOptions, prizes:d.prizes,
   id: d.eventId,
   periodId: d.periodId,
   title: d.title,
@@ -243,10 +247,6 @@ function mockList(placeId: string): EventListDto {
 /** F-WAD-01 이벤트 목록 — 모집 중 행사와 이 매장이 참여 중인 행사. 신청 내역은 F-WREQ-01(type=EVENT_AD)로 따로 불러요 */
 // ─── 백엔드 API 문서 (현재 이벤트 · 이벤트 상세 · 지역 · 이벤트/광고 신청) ───
 
-interface CurrentEventDto { eventId?: RawId; title?: string | null; year?: number; quarter?: number; status?: string | null }
-interface EventApiDto { eventId?: RawId; title?: string | null; regions?: (string | number)[] | null; prizes?: { rank?: number; name: string; quantity?: number }[] | null; status?: string | null }
-interface MyApplicationItemDto { applicationId?: RawId; eventId?: RawId; status?: RequestStatus; adType?: string | null }
-
 let regionCache: Promise<Map<string, string>> | null = null;
 /** 지역 목록 조회 — GET /regions → { regions: [{ regionId, name }] } (한 번만 불러 이름을 찾아요) */
 export function getRegionNames(): Promise<Map<string, string>> {
@@ -262,56 +262,9 @@ export function getRegionNames(): Promise<Map<string, string>> {
 
 const EMPTY_RANGE = { startDate: '', endDate: '' };
 const EMPTY_RECRUIT = { startAt: '', endAt: '' };
-const periodIdOf = (d: CurrentEventDto) => (d.year && d.quarter ? `${d.year}Q${d.quarter}` : '');
-
-async function myEventApplications(storeId: string) {
-  const { data } = await apiClient.get<{ items?: MyApplicationItemDto[] | null }>('/business/event-applications', { params: { storeId } });
-  return data?.items ?? [];
-}
-
-/** 서버 모드 행사 목록: 현재 이벤트(GET /events/current) + 내 이벤트 신청(GET /business/event-applications?storeId) */
 async function serverOverview(storeId: string): Promise<PromoOverview> {
-  // 현재 이벤트가 없으면(404 EVENT_NOT_FOUND) 모집 중 행사가 없는 것이고, 그 밖의 실패는 이유를 화면에 알려요.
-  // 실제 BE 의 GET /events/current 는 보호자(GUARDIAN) 계정만 열려 있어 업체 계정은 403 을 받아요 (백엔드 확인 사항).
-  let eventsUnavailable: string | null = null;
-  const [cur, apps] = await Promise.all([
-    apiClient
-      .get<CurrentEventDto>('/events/current')
-      .then((r) => r.data)
-      .catch((e: unknown) => {
-        const err = e as { status?: number | null; code?: string; message?: string };
-        if (err.status === 404 || err.code === 'EVENT_NOT_FOUND') return null;
-        eventsUnavailable =
-          err.status === 403 || err.code === 'FORBIDDEN'
-            ? '업체 계정으로는 현재 이벤트 정보를 불러올 수 없어요. 서버의 이벤트 조회 권한이 보호자 계정에만 열려 있어요.'
-            : (err.message ?? '현재 이벤트 정보를 불러오지 못했어요.');
-        return null;
-      }),
-    myEventApplications(storeId),
-  ]);
-  const curId = toId(cur?.eventId);
-  const mine = (eventId: string | null) => apps.find((a) => toId(a.eventId) === eventId) ?? null;
-  const recruiting: RecruitingEvent[] = [];
-  if (cur && curId && cur.status === 'OPEN') {
-    const app = mine(curId);
-    recruiting.push({
-      id: curId,
-      periodId: periodIdOf(cur),
-      title: cur.title ?? '',
-      phase: 'RECRUITING',
-      period: EMPTY_RANGE,
-      recruitment: EMPTY_RECRUIT,
-      regions: [],
-      // 매장 지역 정보가 없어 대상 지역 밖이라고 단정하지 않아요
-      placeInRegion: true,
-      myApplication: app && toId(app.applicationId) ? { applicationId: toId(app.applicationId) as string, status: app.status ?? 'RECEIVED', displayStatus: app.status ?? 'RECEIVED' } : null,
-      canApply: !app,
-    });
-  }
-  const participating: ParticipatingEvent[] = apps
-    .filter((a) => a.status === 'APPROVED' && toId(a.eventId))
-    .map((a) => ({ id: toId(a.eventId) as string, periodId: toId(a.eventId) === curId && cur ? periodIdOf(cur) : '', title: toId(a.eventId) === curId && cur?.title ? cur.title : `이벤트 ${toId(a.eventId)}`, phase: 'IN_PROGRESS', period: EMPTY_RANGE, participationId: toId(a.applicationId) ?? '', approvedAt: '' }));
-  return { placeId: storeId, serverTime: new Date().toISOString(), recruiting, participating, eventsUnavailable };
+  const {data}=await apiClient.get<EventListDto>('/business/events',{params:{placeId:storeId}});
+  return {placeId:data.placeId,serverTime:data.serverTime,recruiting:(data.recruiting ?? []).map(toRecruiting),participating:(data.participating ?? []).map(toParticipating),eventsUnavailable:null};
 }
 
 export async function getPromoOverview(storeId: string): Promise<PromoOverview> {
@@ -328,36 +281,7 @@ export async function getEvent(eventId: string, storeId: string): Promise<StampR
     if (!ev) throw mockError('NOT_FOUND');
     dto = await mockResponse(mockDetail(ev, storeId));
   } else {
-    // 이벤트 상세 조회 — GET /events/{eventId} → { eventId, regions: [regionId], prizes } (+ 내 신청은 이벤트 신청 목록에서)
-    const [ev, cur, apps, names] = await Promise.all([
-      apiClient.get<EventApiDto>(`/events/${enc(eventId)}`).then((r) => r.data),
-      apiClient.get<CurrentEventDto>('/events/current').then((r) => r.data).catch(() => null),
-      myEventApplications(storeId),
-      getRegionNames().catch(() => new Map<string, string>()),
-    ]);
-    const regionIds = (ev?.regions ?? []).map((x) => toId(x)).filter((x): x is string => !!x);
-    const app = apps.find((a) => toId(a.eventId) === eventId) ?? null;
-    const isCurrent = toId(cur?.eventId) === eventId;
-    const open = isCurrent && cur?.status === 'OPEN';
-    return {
-      id: eventId,
-      periodId: isCurrent && cur ? periodIdOf(cur) : '',
-      title: ev?.title ?? (isCurrent ? (cur?.title ?? '') : ''),
-      phase: open ? 'RECRUITING' : 'IN_PROGRESS',
-      period: EMPTY_RANGE,
-      recruitment: EMPTY_RECRUIT,
-      regions: regionIds.map((id) => names.get(id) ?? `지역 ${id}`) as StampRoadEvent['regions'],
-      regionOptions: regionIds.map((id) => ({ id, name: names.get(id) ?? `지역 ${id}` })),
-      prizes: (ev?.prizes ?? []).map((p) => ({ name: p.name, quantity: p.quantity ?? null, rank: p.rank ?? null })),
-      description: null,
-      conditions: [],
-      applicablePlaces: [{ placeId: storeId, name: '' }],
-      placeId: storeId,
-      myApplication: app && toId(app.applicationId) ? { applicationId: toId(app.applicationId) as string, status: app.status ?? 'RECEIVED', displayStatus: app.status ?? 'RECEIVED', rejectReason: null } : null,
-      participation: app?.status === 'APPROVED' ? { participationId: toId(app.applicationId) ?? '', approvedAt: '' } : null,
-      canApply: open && !app,
-      applyBlockedReason: !open ? 'NOT_RECRUITING' : app ? 'ALREADY_APPLIED' : null,
-    };
+    dto=(await apiClient.get<EventDetailDto>(`/business/events/${enc(eventId)}`,{params:{placeId:storeId}})).data;
   }
   return toEvent(dto);
 }
@@ -371,10 +295,9 @@ export async function getEligibility(eventId: string, storeId: string): Promise<
     if (!ev || !store) throw mockError('NOT_FOUND');
     const cond = MOCK_CONDITIONS[storeId];
     const baseDate = MOCK_EVENT_NOW.slice(0, 10);
-    const checked = cond?.conditionCheckedAt ?? null;
-    const days = checked ? Math.round((new Date(baseDate).getTime() - new Date(checked).getTime()) / 86_400_000) : null;
-    // 시안: 서울숲점은 30일 안에 확인한 조건으로 봐요 (시각을 12월로 옮겨 둔 만큼 보정)
-    const daysSince = days === null ? null : storeId === 'store-sf-0087' ? 12 : days;
+    // 시안 시각을 12월 말로 옮겨 둔 만큼, 입장 조건 확인일도 그 시각의 12일 전으로 맞춰요
+    const checked = cond?.conditionCheckedAt ? new Date(Date.parse(`${baseDate}T00:00:00Z`) - 12 * 86_400_000).toISOString().slice(0, 10) : null;
+    const daysSince = checked ? 12 : null;
     const checks: EligibilityCheck[] = [
       { code: 'REGION', passed: Boolean(store.area && ev.regions.includes(store.area)), detail: null },
       { code: 'BUSINESS_VERIFIED', passed: store.verification === 'APPROVED', detail: null },
@@ -406,35 +329,52 @@ export async function getEligibility(eventId: string, storeId: string): Promise<
 
 /** F-WAD-06 신청 내역 상세 */
 /** 이벤트 · 광고 신청 상세 응답 (API 문서: 이벤트 { applicationId, status, reviewComment } · 광고 { applicationId, status, creativeUrl }) */
-interface MyApplicationDetailDto { applicationId?: RawId; status?: RequestStatus; reviewComment?: string | null; creativeUrl?: string | null; eventId?: RawId; storeId?: RawId; regionIds?: RawId[] | null; message?: string | null; adType?: string | null; startDate?: string | null; endDate?: string | null }
+interface MyApplicationDetailDto { canEditPeriod?:boolean; applicationId?: RawId; status?: RequestStatus; reviewComment?: string | null; creativeUrl?: string | null; eventId?: RawId; storeId?: RawId; regionIds?: RawId[] | null; message?: string | null; adType?: string | null; startDate?: string | null; endDate?: string | null }
 
-function fromMyApplication(d: MyApplicationDetailDto, kind: 'EVENT' | 'AD', id: string): Application {
+/** 상세 응답에 없는 값을 신청 목록에서 이어받아요 (이벤트 신청 상세에는 eventId · storeId 가 없어요) */
+export interface ApplicationContext {
+  eventId?: string | null;
+  storeId?: string | null;
+}
+
+function fromMyApplication(d: MyApplicationDetailDto, kind: 'EVENT' | 'AD', id: string, context?: ApplicationContext): Application {
   const status = d.status ?? 'RECEIVED';
   return {
     id: toId(d.applicationId) ?? id,
     type: kind === 'AD' ? 'AD' : 'STAMP_ROAD',
-    storeId: toId(d.storeId) ?? '',
+    storeId: toId(d.storeId) ?? context?.storeId ?? '',
     storeName: '',
     status,
     submittedAt: '',
-    ad: kind === 'AD' && d.startDate && d.endDate ? { region: '' as never, startDate: d.startDate, weeks: 0, endDate: d.endDate } : undefined,
-    stampRoad: kind === 'EVENT' ? { eventId: toId(d.eventId) ?? '', periodId: '', title: '', period: EMPTY_RANGE, recruitment: EMPTY_RECRUIT, intro: d.message ?? '', qrPledgeAgreed: false, eligibilityAtSubmit: [], participation: null } : undefined,
+    adType: kind === 'AD' ? (d.adType ?? null) : null,
+    message: kind === 'AD' ? (d.message ?? null) : null,
+    ad: kind === 'AD' && d.startDate && d.endDate ? { region: '' as never, startDate: d.startDate, weeks: adPeriodWeeks(d.startDate, d.endDate), endDate: d.endDate } : undefined,
+    stampRoad: kind === 'EVENT' ? { eventId: toId(d.eventId) ?? context?.eventId ?? '', periodId: '', title: '', period: EMPTY_RANGE, recruitment: EMPTY_RECRUIT, intro: d.message ?? '', qrPledgeAgreed: false, eligibilityAtSubmit: [], participation: null } : undefined,
     history: [],
     rejectReason: d.reviewComment ?? null,
     // 취소 가능 여부 필드가 없어 BE 규칙(ApplicationStatus.isCancelable: 접수 · 보완 요청)대로 열어요
     canCancel: status === 'RECEIVED' || status === 'NEEDS_INFO',
-    canEditPeriod: false,
+    canEditPeriod: d.canEditPeriod === true,
     canReapply: false,
     creativeUrl: d.creativeUrl ?? null,
   };
 }
 
-export async function getApplication(id: string, kind?: 'EVENT' | 'AD' | null): Promise<Application> {
+export async function getApplication(id: string, kind?: 'EVENT' | 'AD' | null, context?: ApplicationContext): Promise<Application> {
   if (!USE_MOCK) {
     // 이벤트 신청 상세 · 광고 신청 상세 — 종류를 모르면 짐작하지 않아요
     if (!kind) throw mockError('FIELD_NOT_SUPPORTED', { field: 'kind' });
     const { data } = await apiClient.get<MyApplicationDetailDto>(`/business/${kind === 'AD' ? 'ad' : 'event'}-applications/${enc(id)}`);
-    return fromMyApplication(data ?? {}, kind, id);
+    const app = fromMyApplication(data ?? {}, kind, id, context);
+    if (kind !== 'EVENT' || !app.stampRoad?.eventId || !app.storeId) return app;
+    // 이벤트 이름 · 기간은 신청의 이벤트 ID 와 매장 ID 로 찾아요. 못 찾으면 있는 값만 보여 줘요
+    const event = await getEvent(app.stampRoad.eventId, app.storeId).catch(() => null);
+    if (!event) return app;
+    return {
+      ...app,
+      canReapply: (app.status === 'REJECTED' || app.status === 'CANCELED') && event.canApply,
+      stampRoad: { ...app.stampRoad, periodId: event.periodId, title: event.title, period: event.period, recruitment: event.recruitment },
+    };
   }
   let dto: ApplicationDto;
   if (USE_MOCK) {
@@ -608,16 +548,21 @@ export async function cancelApplication(id: string, kind?: 'EVENT' | 'AD' | null
   await apiClient.post(`/business/applications/${enc(id)}/cancel`);
 }
 
-/** F-WAD-08 광고 기간 수정 (검토 시작 전) — 바꾼 값만 { startDate?, weeks? } */
-export async function updateAdPeriod(id: string, startDate: string, weeks: number): Promise<Application> {
+/**
+ * F-WAD-08 광고 기간 수정 (검토 시작 전) — 바꾼 값만 { startDate?, weeks? } 보내요.
+ * 시작일만 보내면 서버가 기존 일수를 그대로 유지하고, 주 수만 보내면 기존 시작일을 유지해요.
+ */
+export async function updateAdPeriod(id: string, change: { startDate?: string; weeks?: number }): Promise<Application> {
   let dto: ApplicationDto;
   if (USE_MOCK) {
     const app = MOCK_APPLICATIONS.find((a) => a.applicationId === id && a.type === 'AD');
     if (!app?.ad || !app.canEditPeriod) throw mockError('REQUEST_NOT_EDITABLE');
+    const startDate = change.startDate ?? app.ad.startDate;
+    const weeks = change.weeks ?? app.ad.weeks ?? 1;
     app.ad = { ...app.ad, startDate, weeks, endDate: endDateOf(startDate, weeks) };
     dto = await mockResponse(app);
   } else {
-    dto = (await apiClient.patch<ApplicationDto>(`/business/applications/${enc(id)}`, { startDate, weeks })).data;
+    dto = (await apiClient.patch<ApplicationDto>(`/business/applications/${enc(id)}`, change)).data;
   }
   return toApplication(dto);
 }

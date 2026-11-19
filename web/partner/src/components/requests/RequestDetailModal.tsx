@@ -1,3 +1,5 @@
+import { getBreedNames, getStorePolicy } from '@/api/policy';
+import { ConditionChanges, PolicyRulesView } from '@/components/policy/PolicyRules';
 import { useState } from 'react';
 import { cancelRequest, getRequestDetail } from '@/api/requests';
 import { Button, ButtonLink } from '@/components/common/Button';
@@ -62,7 +64,14 @@ function RequestDetailBody({ requestId, onClose, onChanged }: { requestId: strin
   const [confirming, setConfirming] = useState(false);
 
   const d = detail.data;
-  const title = d ? (d.changes.length === 1 ? `${CONDITION_LABEL[d.changes[0].field]} 변경` : `입장 조건 ${d.changes.length}개 항목 변경`) : '요청 상세';
+  // 서버에 요청 당시 조건 기록이 없어, 진행 중이고 기준 버전이 지금 정책과 같을 때만 변경 전후를 비교해요
+  const inProgress = d ? ['RECEIVED', 'IN_REVIEW', 'NEEDS_INFO'].includes(d.status) : false;
+  const canCompare = Boolean(d?.requestedPolicy && d.storeId && inProgress);
+  const base = useFetch(`request-base:${requestId}:${d?.storeId ?? ''}:${canCompare}`, () => (canCompare && d ? getStorePolicy(d.storeId) : Promise.resolve(null)));
+  const basePolicy = base.data && d?.baseVersion === base.data.version ? base.data : null;
+  const breeds = useFetch(`request-breeds:${Boolean(d?.requestedPolicy)}`, () => (d?.requestedPolicy ? getBreedNames() : Promise.resolve(new Map<string, string>())));
+  const changeReason = d?.requestedPolicy?.conditions?.changeReason?.trim();
+  const title = d ? (d.requestedPolicy ? '입장 조건 변경 요청' : d.changes.length === 1 ? `${CONDITION_LABEL[d.changes[0].field]} 변경` : `입장 조건 ${d.changes.length}개 항목 변경`) : '요청 상세';
 
   const onCancel = async () => {
     if (!(await cancel.run(requestId)).ok) return;
@@ -123,6 +132,44 @@ function RequestDetailBody({ requestId, onClose, onChanged }: { requestId: strin
             <h3 id="rq-content" className={styles.h}>
               요청 내용
             </h3>
+            {d.requestedPolicy && basePolicy && <ConditionChanges before={basePolicy.conditions} after={d.requestedPolicy.conditions} />}
+            {d.requestedPolicy && !basePolicy && base.status !== 'loading' && <p className={styles.muted}>요청 당시 조건 기록이 없어 요청한 내용만 보여 드려요.</p>}
+            {d.requestedPolicy && <PolicyRulesView rules={d.requestedPolicy} compareTo={basePolicy ?? undefined} breeds={breeds.data ?? new Map()} />}
+            {changeReason && (
+              <p className={styles.sourceText}>
+                <strong>변경 사유</strong>
+                <br />
+                {changeReason}
+              </p>
+            )}
+            {d.sourceText?.trim() && (
+              <p className={styles.sourceText}>
+                <strong>정책 원문</strong>
+                <br />
+                {d.sourceText}
+              </p>
+            )}
+            {d.requestNote?.effectiveFrom && (
+              <p className={styles.sourceText}>
+                <strong>적용 시작일</strong>
+                <br />
+                {d.requestNote.effectiveFrom}
+              </p>
+            )}
+            {d.requestNote?.notice && (
+              <p className={styles.sourceText}>
+                <strong>공지 문장</strong>
+                <br />
+                {d.requestNote.notice}
+              </p>
+            )}
+            {d.requestNote?.changeReason && (
+              <p className={styles.sourceText}>
+                <strong>변경 사유</strong>
+                <br />
+                {d.requestNote.changeReason}
+              </p>
+            )}
             {d.changes.map((ch) => (
               <div key={ch.field} className={styles.changeRow}>
                 <span className={styles.changeLabel}>{CONDITION_LABEL[ch.field]}</span>

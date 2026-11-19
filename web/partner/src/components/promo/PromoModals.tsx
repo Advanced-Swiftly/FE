@@ -25,7 +25,7 @@ export function PromoModals({ modal, onChange, onChanged }: PromoModalsProps) {
           onClose={close}
           onApply={() => onChange({ kind: 'applyEvent', eventId: modal.eventId })}
           onStats={() => onChange({ kind: 'stats', eventId: modal.eventId })}
-          onApplication={(id) => onChange({ kind: 'application', id, ids: [id], appKind: 'EVENT' })}
+          onApplication={(id) => onChange({ kind: 'application', id, ids: [id], appKind: 'EVENT', context: { [id]: { eventId: modal.eventId } } })}
         />
       );
     case 'applyEvent':
@@ -34,9 +34,9 @@ export function PromoModals({ modal, onChange, onChanged }: PromoModalsProps) {
           eventId={modal.eventId}
           onClose={close}
           onBack={() => onChange({ kind: 'event', eventId: modal.eventId })}
-          onDone={(id) => {
+          onDone={(id, storeId) => {
             onChanged?.();
-            onChange({ kind: 'application', id, ids: [id], appKind: 'EVENT' });
+            onChange({ kind: 'application', id, ids: [id], appKind: 'EVENT', context: { [id]: { eventId: modal.eventId, storeId } } });
           }}
         />
       );
@@ -58,6 +58,7 @@ export function PromoModals({ modal, onChange, onChanged }: PromoModalsProps) {
           id={modal.id}
           ids={modal.ids}
           appKind={modal.appKind ?? null}
+          context={modal.context?.[modal.id]}
           onMove={(id) => onChange({ ...modal, id })}
           onClose={close}
           onChanged={onChanged}

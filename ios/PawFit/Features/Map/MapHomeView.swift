@@ -340,7 +340,7 @@ struct PlaceRow: View {
 enum PlaceIcon {
     /// 서버 카드에는 업종이 없어서 이름으로 짐작 (목업은 업종을 안다)
     static func symbol(for place: PlaceCard) -> String {
-        let c = MockPawFitAPI.category(of: place.placeId) ?? place.name
+        let c = place.category.map(PlaceCategory.title) ?? MockPawFitAPI.category(of: place.placeId) ?? place.name
         if c.contains("카페") || c.contains("커피") { return "cup.and.saucer" }
         if c.contains("베이커리") || c.contains("빵") { return "birthday.cake" }
         if c.contains("식당") || c.contains("레스토랑") || c.contains("브런치") || c.contains("가든") { return "fork.knife" }

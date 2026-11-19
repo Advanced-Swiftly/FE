@@ -49,7 +49,7 @@ export function EventDetailModal({ eventId, onClose, onApply, onStats, onApplica
             <Button onClick={() => onApplication(e.myApplication!.applicationId)}>내 신청 보기</Button>
           ) : (
             e?.phase !== 'ENDED' && (
-              <Button onClick={onApply} disabled={!e?.canApply}>
+              <Button onClick={onApply} disabled={!e?.canApply && e?.applyBlockedReason !== 'CHECK_FAILED'}>
                 참여 신청
               </Button>
             )

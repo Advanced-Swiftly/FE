@@ -1,3 +1,4 @@
+import { canManageStore } from '@/api/stores';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useCurrentStore } from '@/hooks/useCurrentStore';
@@ -13,7 +14,7 @@ export function StoreSwitcher() {
       <button type="button" className={`${styles.trigger} ${open ? styles.open : ''}`} aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
         <span className={styles.text}>
           <span className={styles.name}>{current.name}</span>
-          <span className={styles.sub}>{[current.area, current.category].filter(Boolean).join(' · ') || '인증 완료'}</span>
+          <span className={styles.sub}>{[current.area, current.category].filter(Boolean).join(' · ') || (current.verification === 'APPROVED' ? '인증 완료' : '관리 중')}</span>
         </span>
         <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M7 10l5 5 5-5" /></svg>
       </button>
@@ -21,7 +22,7 @@ export function StoreSwitcher() {
       {open && (
         <div role="listbox" aria-label="관리할 업체" className={styles.menu}>
           {stores.map((s) => {
-            const disabled = s.verification !== 'APPROVED';
+            const disabled = !canManageStore(s);
             const selected = s.id === current.id;
             return (
               <button
@@ -38,7 +39,7 @@ export function StoreSwitcher() {
               >
                 <span className={styles.text}>
                   <span className={styles.name}>{s.name}</span>
-                  <span className={styles.sub}>{disabled ? '승인 대기 · 전환 불가' : [s.area, s.category].filter(Boolean).join(' · ') || '인증 완료'}</span>
+                  <span className={styles.sub}>{disabled ? '승인 대기 · 전환 불가' : [s.area, s.category].filter(Boolean).join(' · ') || (s.verification === 'APPROVED' ? '인증 완료' : '관리 중')}</span>
                 </span>
                 {selected && <span aria-hidden="true">✓</span>}
               </button>

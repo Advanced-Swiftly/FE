@@ -39,6 +39,7 @@ protocol PawFitAPI: Sendable {
     // 챗봇
     func createChatSession() async throws -> ChatSessionCreated
     func sendChat(sessionId: Int64, _ r: ChatSendRequest) async throws -> ChatSent
+    func confirmChatProfile(sessionId: Int64, actionId: String) async throws
 
     // 댕댕로드
     func currentEvent() async throws -> CurrentEvent?
@@ -156,6 +157,11 @@ struct LivePawFitAPI: PawFitAPI {
         try await api.send(Endpoint(method: .post, path: APIPath.chatMessages(sessionId), body: r))
     }
 
+    func confirmChatProfile(sessionId: Int64, actionId: String) async throws {
+        let _: ChatProfileApplied = try await api.send(Endpoint(method: .post,
+            path: "\(APIPath.chatSessions)/\(sessionId)/profile-actions/\(actionId)/confirm"))
+    }
+
     // MARK: 댕댕로드
     func currentEvent() async throws -> CurrentEvent? {
         do { return try await api.send(Endpoint(method: .get, path: APIPath.currentEvent)) }
@@ -209,5 +215,11 @@ struct LivePawFitAPI: PawFitAPI {
     }
     func signup(_ r: SignupRequest) async throws -> SignupResponse {
         try await api.send(Endpoint(method: .post, path: APIPath.signupGuardian, body: r, requiresAuth: false))
+    }
+}
+
+extension PawFitAPI {
+    func confirmChatProfile(sessionId: Int64, actionId: String) async throws {
+        throw URLError(.unsupportedURL)
     }
 }

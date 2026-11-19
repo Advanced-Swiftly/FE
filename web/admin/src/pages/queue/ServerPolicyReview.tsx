@@ -10,7 +10,7 @@ import { LoadState } from '@/components/common/LoadState';
 import { Notice } from '@/components/common/Notice';
 import { PageHeader } from '@/components/common/PageHeader';
 import { Tag } from '@/components/common/Tag';
-import { PolicyRulesEditor, PolicyRulesView } from '@/components/policy/PolicyRules';
+import { ConditionChanges, PolicyRulesEditor, PolicyRulesView } from '@/components/policy/PolicyRules';
 import { useAction } from '@/hooks/useAction';
 import { useFetch } from '@/hooks/useFetch';
 import page from '@/styles/page.module.css';
@@ -30,7 +30,7 @@ export function ServerPolicyReviewPage() {
     <div className={page.stack}>
       <LoadState status={review.status} errorText={review.error?.message ?? '요청을 불러오지 못했어요.'} onRetry={review.reload} />
       {review.status === 'error' && <Link to="/queue">검토 대기열로 돌아가기</Link>}
-      {review.data && <Body key={`${review.data.id}:${review.data.status}`} r={review.data} breeds={breeds.data ?? new Map()} reload={review.reload} />}
+      {review.data && <Body key={`${review.data.id}:${review.data.status}:${review.data.currentVersion ?? 0}`} r={review.data} breeds={breeds.data ?? new Map()} reload={review.reload} />}
     </div>
   );
 }
@@ -39,14 +39,18 @@ function Body({ r, breeds, reload }: { r: AdminConditionReview; breeds: Map<stri
   const navigate = useNavigate();
   const storeName = useFetch(`store-name:${r.storeId}`, () => (r.storeId ? adminStoreName(r.storeId) : Promise.resolve(null)));
   const actions = conditionActions(r.status);
-  const decisions = actions.filter((a) => a !== 'START_REVIEW');
+  // 서버는 요청의 기준 버전이 현재 정책 버전과 다르면 승인을 거절해요 (정책이 없으면 현재 버전은 0)
+  const versionMismatch = r.baseVersion !== null && r.baseVersion !== (r.currentVersion ?? 0);
+  const decisions = actions.filter((a) => a !== 'START_REVIEW' && !(versionMismatch && a === 'APPROVE'));
   const [action, setAction] = useState<ConditionReviewAction | null>(decisions[0] ?? null);
   const [comment, setComment] = useState('');
-  // 승인 정책을 고치면 요청 정책 '전체'에서 시작해요 (고치지 않은 조건이 빠지지 않게)
-  const [editPolicy, setEditPolicy] = useState(false);
-  const [approved, setApproved] = useState<RuleSet>({ breedRules: [...r.requested.breedRules], equipmentRules: [...r.requested.equipmentRules], vaccineRules: [...r.requested.vaccineRules] });
+  // 재확인 요청에는 요청 정책이 없고, 승인할 때 적용할 정책을 꼭 보내야 해요. 그래서 현재 정책에서 시작해요
+  const isRecheck = r.kind === 'RECHECK';
+  const basePolicy = isRecheck ? r.current : r.requested;
+  // 승인 정책을 고치면 기준 정책 '전체'에서 시작해요 (고치지 않은 조건이 빠지지 않게)
+  const [editPolicy, setEditPolicy] = useState(isRecheck);
+  const [approved, setApproved] = useState<RuleSet>({ conditions: basePolicy.conditions, breedRules: [...basePolicy.breedRules], equipmentRules: [...basePolicy.equipmentRules], vaccineRules: [...basePolicy.vaccineRules] });
   const run = useAction(reviewAdminCondition);
-  const versionMismatch = r.baseVersion !== null && r.currentVersion !== null && r.baseVersion !== r.currentVersion;
   const needsComment = action === 'NEEDS_INFO' || action === 'REJECT';
   const canDecide = action !== null && (!needsComment || comment.trim().length > 0) && comment.trim().length <= 500 && !run.pending;
 
@@ -58,7 +62,7 @@ function Body({ r, breeds, reload }: { r: AdminConditionReview; breeds: Map<stri
   };
   const onDecide = async () => {
     if (!action || !canDecide) return;
-    const policy = action === 'APPROVE' && editPolicy && !sameRules(approved, r.requested) ? approved : null;
+    const policy = action === 'APPROVE' && (isRecheck || (editPolicy && !sameRules(approved, r.requested))) ? approved : null;
     const res = await run.run(r.id, action, comment, policy);
     if (!res.ok) {
       if (['INVALID_REQUEST_STATE', 'POLICY_VERSION_CONFLICT', 'CONFLICT'].includes(res.error.code)) reload();
@@ -90,13 +94,20 @@ function Body({ r, breeds, reload }: { r: AdminConditionReview; breeds: Map<stri
         }
       />
       {versionMismatch && (
-        <Notice tone="warning">요청 뒤 정책이 바뀌었어요 (기준 {r.baseVersion} → 현재 {r.currentVersion}). 승인하면 요청 정책 전체로 바뀌니 현재 정책과 비교해 주세요.</Notice>
+        <Notice tone="warning">요청 뒤 정책이 바뀌어 승인할 수 없어요 (기준 {r.baseVersion} → 현재 {r.currentVersion ?? 0}). 업체가 최신 정책으로 다시 요청하도록 보완 요청이나 반려로 처리해 주세요.</Notice>
       )}
       <div className={page.split}>
         <div className={page.main}>
-          <Card title="요청 정책" aside="현재 정책과 비교">
-            <PolicyRulesView rules={r.requested} compareTo={r.current} breeds={breeds} />
-          </Card>
+          {!isRecheck && (
+            <>
+              <Card title="변경 요약" aside="현재 정책과 비교">
+                <ConditionChanges before={r.current.conditions} after={r.requested.conditions} />
+              </Card>
+              <Card title="요청 정책">
+                <PolicyRulesView rules={r.requested} compareTo={r.current} breeds={breeds} />
+              </Card>
+            </>
+          )}
           <Card title="현재 정책">
             <PolicyRulesView rules={r.current} breeds={breeds} />
           </Card>
@@ -104,6 +115,7 @@ function Body({ r, breeds, reload }: { r: AdminConditionReview; breeds: Map<stri
             <InfoList
               labelWidth={96}
               rows={[
+                ...(r.requested.conditions?.changeReason?.trim() ? [{ label: '변경 사유', value: r.requested.conditions.changeReason }] : []),
                 { label: '정책 원문', value: r.sourceText || '—' },
                 {
                   label: '근거 주소',
@@ -143,7 +155,11 @@ function Body({ r, breeds, reload }: { r: AdminConditionReview; breeds: Map<stri
                 </div>
                 {action === 'APPROVE' && (
                   <>
-                    <Choice type="checkbox" label="승인할 정책을 고치기 (요청 정책 전체를 기준으로 보내요)" checked={editPolicy} onChange={(e) => setEditPolicy(e.target.checked)} />
+                    {isRecheck ? (
+                      <p className={page.muted}>재확인 결과로 적용할 정책이에요. 현재 정책에서 고쳐서 승인해 주세요.</p>
+                    ) : (
+                      <Choice type="checkbox" label="승인할 정책을 고치기 (요청 정책 전체를 기준으로 보내요)" checked={editPolicy} onChange={(e) => setEditPolicy(e.target.checked)} />
+                    )}
                     {editPolicy && <PolicyRulesEditor value={approved} onChange={setApproved} breeds={breeds} />}
                   </>
                 )}

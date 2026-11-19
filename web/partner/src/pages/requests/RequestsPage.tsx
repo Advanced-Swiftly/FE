@@ -46,7 +46,10 @@ export function RequestsPage() {
   const openDetail = (r: PartnerRequest) => {
     if (r.kind === 'CONDITION') setConditionId(r.id);
     // 이전 · 다음 이동은 같은 종류(이벤트 · 광고) 신청끼리만 — 같은 숫자 ID 가 섞이지 않게요
-    else setPromoModal({ kind: 'application', id: r.id, ids: list.items.filter((x) => x.kind === 'EVENT_AD' && x.appKind === r.appKind).map((x) => x.id), appKind: r.appKind });
+    else {
+      const rows = list.items.filter((x) => x.kind === 'EVENT_AD' && x.appKind === r.appKind);
+      setPromoModal({ kind: 'application', id: r.id, ids: rows.map((x) => x.id), appKind: r.appKind, context: Object.fromEntries(rows.map((x) => [x.id, { eventId: x.eventId, storeId: x.storeId }])) });
+    }
   };
 
   return (
@@ -111,7 +114,7 @@ export function RequestsPage() {
           ) : (
             <ul className={styles.list}>
               {list.items.map((r) => {
-                const fix = r.kind === 'CONDITION' && r.status === 'NEEDS_INFO';
+                const fix = r.kind === 'CONDITION' && r.status === 'NEEDS_INFO' && !r.operatorLabel;
                 return (
                   <li key={`${r.kind}:${r.appKind ?? ''}:${r.id}`} className={`${styles.row} ${fix ? styles.fixRow : ''}`}>
                     <span className={styles.date}>{formatDate(r.submittedAt)}</span>
@@ -120,6 +123,8 @@ export function RequestsPage() {
                     </span>
                     <span className={styles.text}>
                       <strong>{r.summaryText ?? (r.kind === 'CONDITION' ? '입장 조건 변경 요청' : '이벤트 · 광고 신청')}</strong>
+                      {r.sourcePreview && <span className={styles.subNote}>{r.sourcePreview}</span>}
+                      {r.operatorLabel && <span className={styles.subNote}>운영자가 직접 처리한 건이라 상세 내용을 열 수 없어요. 궁금한 점은 문의하기로 남겨 주세요.</span>}
                       {fix && <span className={styles.fixNote}>보완 요청이 왔어요. 사유를 보고 다시 보내 주세요.</span>}
                     </span>
                     <StatusChip status={r.status} />
@@ -128,6 +133,8 @@ export function RequestsPage() {
                         <ButtonLink to={`/conditions/edit?request=${encodeURIComponent(r.id)}`} variant="secondary" size="sm" className={styles.fixButton}>
                           보완하기
                         </ButtonLink>
+                      ) : r.operatorLabel ? (
+                        <Tag tone="gray">운영자 처리</Tag>
                       ) : (
                         <button type="button" className={styles.more} onClick={() => openDetail(r)}>
                           자세히

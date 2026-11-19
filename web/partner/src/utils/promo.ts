@@ -14,6 +14,7 @@ export const BLOCKED_LABEL: Record<ApplyBlockedReason, string> = {
   OUT_OF_REGION: '이 매장은 행사 대상 지역 밖에 있어요',
   ALREADY_APPLIED: '이미 이 분기에 신청한 매장이에요',
   ALREADY_PARTICIPATING: '이 분기에 이미 참여 중이에요',
+  CHECK_FAILED: '아직 충족하지 못한 참여 조건이 있어요. 참여 신청에서 항목별 결과를 확인해 주세요',
 };
 
 /** 신청 · 승인 때 서버 오류 코드 → 화면 문구 (명세 F-WAD-04) */
@@ -62,4 +63,20 @@ export function recruitmentText(ev: Pick<StampRoadEvent, 'recruitment'>) {
 export function periodText(p: { startDate: string; endDate: string }) {
   if (!p.startDate || !p.endDate) return '기간 정보 없음';
   return `${formatDate(p.startDate, true)} – ${formatDate(p.endDate, true)}`;
+}
+
+/** 광고 기간 일수 — 시작일 · 종료일을 모두 포함해요 */
+export function adPeriodDays(startDate: string, endDate: string) {
+  return Math.round((Date.parse(`${endDate}T00:00:00Z`) - Date.parse(`${startDate}T00:00:00Z`)) / 86_400_000) + 1;
+}
+
+/** 7일 단위로 나누어떨어질 때만 주 수를 돌려줘요 (아니면 null) */
+export function adPeriodWeeks(startDate: string, endDate: string) {
+  const days = adPeriodDays(startDate, endDate);
+  return days > 0 && days % 7 === 0 ? days / 7 : null;
+}
+
+/** 'YYYY-MM-DD' 에 며칠을 더한 날짜 */
+export function addDaysISO(date: string, days: number) {
+  return new Date(Date.parse(`${date}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
 }

@@ -8,8 +8,11 @@ export interface Store {
   /** 지역 · 업종 — F-WDASH-01 응답에는 없어서 서버 연동 때는 null 일 수 있어요 (명세 WD-3) */
   area: Area | null;
   category: string | null;
-  /** 운영자 인증 상태 — PENDING이면 업체 전환 불가 */
-  verification: 'APPROVED' | 'PENDING';
+  /**
+   * 관리 권한 상태 — PENDING 이면 업체 전환 불가.
+   * LINKED: 서버의 관리 업체 목록에 있어 관리할 수 있지만, 매장의 현재 인증 상태는 응답에 없어요 ('인증 완료'로 표시하지 않아요).
+   */
+  verification: 'APPROVED' | 'PENDING' | 'LINKED';
   /** 매장 전용 QR 코드 ID */
   qrId?: string;
   /** 지도 노출 상태 (서버 visibility 값 그대로, 예: VISIBLE · HIDDEN). 승인 · 선택 가능 여부와는 상관없어요 */
@@ -20,8 +23,8 @@ export interface Store {
 
 // TODO: Size · Area · Item 값 목록은 사용자 앱 명세서 값으로 맞춰 주세요.
 export type SizeLimit = 'SMALL' | 'MEDIUM' | 'LARGE';
-export type AreaRule = 'INDOOR_OK' | 'OUTDOOR_ONLY';
-export type Item = 'STROLLER' | 'CARRIER' | 'MANNER_BELT' | 'MUZZLE';
+export type AreaRule = 'INDOOR_OK' | 'OUTDOOR_ONLY' | 'OVER_LIMIT_OUTDOOR';
+export type Item = 'STROLLER' | 'CARRIER' | 'LEASH' | 'MUZZLE';
 
 /** 조건 값. null 은 '미확인' (단, unrestrictedFields 에 든 필드는 '제한 없음') */
 export interface PlaceConditions {
@@ -76,6 +79,14 @@ export interface ConditionChangeRequest {
   unrestrictedFields: UnrestrictableField[];
   evidenceLinks: string[];
   evidenceFiles: { name: string; size: number }[];
+  /** 적용 시작일 · 공지 문장 · 변경 사유 */
+  requestNote?: ConditionRequestNote;
+}
+
+export interface ConditionRequestNote {
+  effectiveFrom?: string;
+  notice?: string;
+  changeReason?: string;
 }
 
 /** 판정 미리보기용 테스트 반려견 */
@@ -139,6 +150,12 @@ export interface PartnerRequest {
   /** 줄 요약 — 서버가 만든 글 (명세 WR-4) */
   summaryText: string | null;
   submittedAt: string;
+  /** 정책 원문 미리보기 (한 줄로 줄인 값, 없으면 null) */
+  sourcePreview?: string | null;
+  /** 업체가 보낸 요청이 아닌 운영자 처리 건의 이름 — 있으면 상세를 열 수 없어요 */
+  operatorLabel?: string | null;
+  /** 이벤트 참여 신청의 이벤트 ID */
+  eventId?: string | null;
 }
 
 /** F-WREQ-01 응답 */
@@ -182,6 +199,9 @@ export interface RequestHistory {
 
 /** F-WREQ-04 조건 변경 요청 상세 (요청 상세 팝업) */
 export interface ConditionRequestDetail {
+  requestNote?: ConditionRequestNote;
+  sourceText?: string | null;
+  requestedPolicy?: import('@/api/policy').RuleSet;
   id: string;
   storeId: string;
   status: RequestStatus;
@@ -209,7 +229,7 @@ export type EventPhase = 'UPCOMING' | 'RECRUITING' | 'IN_PROGRESS' | 'ENDED';
 /** 참여 조건 코드 */
 export type EligibilityCode = 'REGION' | 'BUSINESS_VERIFIED' | 'QR_ACTIVE' | 'CONDITION_CHECKED_RECENT' | 'QR_PLEDGE';
 
-export type ApplyBlockedReason = 'NOT_RECRUITING' | 'OUT_OF_REGION' | 'ALREADY_APPLIED' | 'ALREADY_PARTICIPATING';
+export type ApplyBlockedReason = 'NOT_RECRUITING' | 'OUT_OF_REGION' | 'ALREADY_APPLIED' | 'ALREADY_PARTICIPATING' | 'CHECK_FAILED';
 
 export interface DateRange {
   startDate: string;
@@ -290,6 +310,9 @@ export interface Eligibility {
 export interface Application {
   /** 광고 소재 주소 (광고 신청 상세 API) */
   creativeUrl?: string | null;
+  /** 광고 종류 (RECOMMENDED · BANNER) · 전달사항 — 광고 신청 상세 API */
+  adType?: string | null;
+  message?: string | null;
   id: string;
   type: 'AD' | 'STAMP_ROAD';
   storeId: string;
@@ -299,7 +322,8 @@ export interface Application {
   /** 참여 신청만: 모집 종료 · 미승인 포함 */
   displayStatus?: RequestStatus;
   submittedAt: string;
-  ad?: { region: Area; startDate: string; weeks: number; endDate: string };
+  /** weeks: 기간이 7일 단위가 아니면 null */
+  ad?: { region: Area; startDate: string; weeks: number | null; endDate: string };
   stampRoad?: {
     eventId: string;
     periodId: string;
@@ -428,6 +452,8 @@ export interface Inquiry {
   submittedAt: string;
   /** 답변 0~1개 (answers[0]) */
   answer: { content: string; answeredAt: string } | null;
+  /** 첨부 링크 (서버가 조회할 때마다 새로 만들어 주는 주소) */
+  attachments?: { name: string; href: string }[];
 }
 
 /** F-WQNA-01 문의 보내기 */
@@ -455,6 +481,10 @@ export interface Account {
   phone: string;
   /** 연결된 업체 수. 내 프로필 조회 응답에 없으면 null (0 으로 채우지 않아요) */
   stores: { total: number; approved: number; pending: number } | null;
+  /** 서버 모드: 관리 업체 목록 (조회 실패면 null — 0곳으로 표시하지 않아요) */
+  storeLinks?: { id: string; name: string; visibility: string | null }[] | null;
+  /** 서버 모드: 사업자 인증 요청 상태별 건수 (조회 실패면 null) */
+  verificationCounts?: { approved: number; inReview: number; needsInfo: number; rejected: number } | null;
 }
 
 export interface SignupStatus {
