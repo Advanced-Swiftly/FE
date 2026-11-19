@@ -16,11 +16,14 @@ struct ChatView: View {
     @State private var location = LocationProvider()
     @State private var message: String?
     @State private var editDogId: Int64?
+    /// 처음 화면으로 돌아가면 1 늘린다 → 그 전에 보낸 질문의 답이 늦게 와도 새 화면에 붙지 않게
+    @State private var chatRound = 0
     @FocusState private var focused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
-            TopBar(title: "댕댕 도우미", leading: .none)
+            // 대화 중에는 왼쪽 위 뒤로 버튼 → 예시 질문 처음 화면으로
+            TopBar(title: "댕댕 도우미", leading: messages.isEmpty ? .none : .back, onLeading: startOver)
                 .overlay(alignment: .bottom) { Rectangle().fill(PawFitColor.separator).frame(height: 0.5) }
 
             if messages.isEmpty {
@@ -195,16 +198,33 @@ struct ChatView: View {
         send(chip)
     }
 
+    /// 예시 질문 처음 화면으로. 다음 질문은 새 대화(세션)로 시작한다.
+    private func startOver() {
+        focused = false
+        withAnimation(.easeOut(duration: 0.2)) {
+            chatRound += 1
+            messages = []
+            sessionId = nil
+            input = ""
+            sending = false
+        }
+    }
+
     private func send(_ raw: String) {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !sending else { return }
         input = ""
         messages.append(ChatMessage(role: .user, text: text))
         sending = true
+        let current = chatRound
         Task {
-            defer { sending = false }
+            defer { if current == chatRound { sending = false } }
             do {
-                if sessionId == nil { sessionId = try await store.api.createChatSession().sessionId }
+                if sessionId == nil {
+                    let created = try await store.api.createChatSession().sessionId
+                    guard current == chatRound else { return }
+                    sessionId = created
+                }
                 guard let sessionId else { return }
                 let named = store.dogs.filter { text.contains($0.name) }
                 let dogs = named.isEmpty ? store.basisDogs : named
@@ -213,11 +233,13 @@ struct ChatView: View {
                     content: text, selectedDogIds: dogs.map(\.dogId),
                     latitude: here.latitude, longitude: here.longitude))
                 let cards = await loadCards(sent.assistantMessage.places ?? [], dogs: dogs)
+                guard current == chatRound else { return }   // 그사이 처음 화면으로 돌아갔으면 버린다
                 var reply = ChatMessage(role: .assistant, text: sent.assistantMessage.content, cards: cards)
                 reply.profileAction = sent.assistantMessage.profileAction
                 reply.followUps = followUps(question: text, cards: cards)
                 messages.append(reply)
             } catch {
+                guard current == chatRound else { return }
                 messages.append(ChatMessage(role: .assistant, text: APIError.message(error), failed: true))
             }
         }

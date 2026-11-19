@@ -68,7 +68,6 @@ struct DogBasisMenu: View {
 
 /// B4 판정 기준 (캔버스 '판정 기준')
 struct CriteriaSheet: View {
-    @Environment(\.dismiss) private var dismiss
 
     private let items: [(Verdict, String)] = [
         (.noEntry, "체중·견종·크기·최대 입장 마릿수 등 필수 조건 미충족. 함께 가요에서는 한 마리라도 못 들어가면 빨강"),
@@ -105,7 +104,6 @@ struct CriteriaSheet: View {
                 }
                 .padding(.horizontal, 20).padding(.top, 24)
             }
-            BottomBar { Button("닫기") { dismiss() }.buttonStyle(SecondaryButtonStyle()) }
         }
         .screenBackground()
         .presentationDragIndicator(.visible)
@@ -115,7 +113,6 @@ struct CriteriaSheet: View {
 
 /// 정보 확인 안내 (ⓘ에서 열림)
 struct InfoGuideSheet: View {
-    @Environment(\.dismiss) private var dismiss
     private let items = [
         ("업체 조건 확인", "PawFit이 업체에 입장 조건을 마지막으로 확인한 날이에요. 조건이 바뀌면 운영자가 근거를 확인한 뒤 고치고 날짜도 새로 바꿔요."),
         ("최근 PawFit 방문", "다른 보호자가 QR로 방문 인증을 남긴 가장 최근 날이에요. 실제로 다녀간 사람이 있다는 뜻이고, 조건이 그대로라는 뜻은 아니에요."),
@@ -135,7 +132,6 @@ struct InfoGuideSheet: View {
                 .overlay(alignment: .bottom) { Rectangle().fill(PawFitColor.separator).frame(height: 0.5) }
             }
             Spacer(minLength: 16)
-            Button("닫기") { dismiss() }.buttonStyle(SecondaryButtonStyle())
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 8)
@@ -143,5 +139,21 @@ struct InfoGuideSheet: View {
         .presentationDetents([.medium, .large])
         .presentationCornerRadius(28)
         .presentationDragIndicator(.visible)
+    }
+}
+
+/// 메인 지도 '전체' 옆 ▾ 칩 메뉴: 공공데이터 장소 보기 켜기/끄기
+struct PublicDataMenu: View {
+    @Binding var isOn: Bool
+
+    var body: some View {
+        Toggle(isOn: $isOn) {
+            Text("공공데이터 장소 보기").font(.pawfit(16, .semibold)).foregroundStyle(PawFitColor.textPrimary)
+        }
+        .tint(PawFitColor.brand)
+        .padding(.horizontal, 16).padding(.vertical, 14)
+        .frame(width: 276)
+        .background(PawFitColor.background, in: RoundedRectangle(cornerRadius: 20))
+        .pawfitFloatingShadow()
     }
 }

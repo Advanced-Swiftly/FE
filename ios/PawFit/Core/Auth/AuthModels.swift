@@ -128,6 +128,7 @@ enum PasswordRule {
 
     static func isValid(_ password: String) -> Bool {
         let c = check(password)
-        return c.length && c.letter && c.symbol
+        // 서버(bcrypt)는 UTF-8 72 byte까지만 쓴다 → 글자 수와 함께 byte 수도 본다
+        return c.length && c.letter && c.symbol && password.utf8.count <= maxLength
     }
 }

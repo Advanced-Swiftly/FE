@@ -42,6 +42,11 @@ actor MockPawFitAPI: PawFitAPI {
     ]
     private var analyzingSince: [Int64: Date] = [:]
     private var name = "이채린"
+    private var phone = "01012345678"
+    /// 목업 비밀번호 — 탈퇴 · 비밀번호 변경 확인용 (목업 로그인은 `MockAuthService`의 고정 계정을 그대로 쓴다)
+    private var password = MockAuthService.demoPassword
+    /// 마지막으로 인증번호를 보낸 번호 (번호 변경용)
+    private var pendingPhone: String?
     private var settings = NotificationSettings(event: true, inquiry: true, reviewResult: true, marketing: true)
     private var stampStores: [Int64] = [101, 102, 103]
     private var visitList: [Visit] = [
@@ -111,10 +116,10 @@ actor MockPawFitAPI: PawFitAPI {
     // MARK: - 내 정보
 
     func me() async throws -> Me {
-        await pause(); return Me(userId: 1, role: .guardian, name: name, phoneNumber: "01012345678")
+        await pause(); return Me(userId: 1, role: .guardian, name: name, phoneNumber: phone)
     }
     func updateName(_ name: String) async throws -> ProfileUpdated {
-        await pause(); self.name = name; return ProfileUpdated(userId: 1, name: name, phoneNumber: "01012345678")
+        await pause(); self.name = name; return ProfileUpdated(userId: 1, name: name, phoneNumber: phone)
     }
     func notificationSettings() async throws -> NotificationSettings { await pause(); return settings }
     func updateNotificationSettings(_ s: NotificationSettings) async throws -> NotificationSettings {
@@ -127,9 +132,28 @@ actor MockPawFitAPI: PawFitAPI {
     }
     func withdraw(password: String) async throws {
         await pause()
-        guard password == MockAuthService.demoPassword else {
+        guard password == self.password else {
             throw APIError.server(code: .invalidPassword, status: 401, field: nil)
         }
+    }
+    func changePhone(verificationToken: String) async throws -> ProfileUpdated {
+        await pause()
+        guard verificationToken == "mock-verification-token", let pendingPhone else {
+            throw APIError.server(code: .invalidVerificationToken, status: 400, field: nil)
+        }
+        // 010-5555-5555는 업체관리자 목업 계정 번호 → 이미 쓰는 번호로 흉내
+        guard pendingPhone != "01055555555" else {
+            throw APIError.server(code: .duplicatePhoneNumber, status: 400, field: nil)
+        }
+        phone = pendingPhone
+        self.pendingPhone = nil
+        return ProfileUpdated(userId: 1, name: name, phoneNumber: phone)
+    }
+    func changePassword(current: String, new: String) async throws {
+        await pause()
+        guard current == password else { throw APIError.server(code: .invalidPassword, status: 401, field: nil) }
+        guard new != password else { throw APIError.server(code: .validationError, status: 400, field: "newPassword") }
+        password = new
     }
 
     // MARK: - 반려견
@@ -387,9 +411,10 @@ actor MockPawFitAPI: PawFitAPI {
                 Term(termId: 4, title: "위치기반 서비스 이용약관", required: true, version: "1.0"),
                 Term(termId: 5, title: "혜택·광고 알림 받기", required: false, version: "1.0")]
     }
-    func sendPhoneCode(_ phone: String) async throws -> PhoneVerificationSent {
+    func sendPhoneCode(_ phone: String, purpose: PhoneVerificationPurpose) async throws -> PhoneVerificationSent {
         await pause()
         guard PhoneRule.isValid(phone) else { throw APIError.server(code: .validationError, status: 400, field: "phoneNumber") }
+        pendingPhone = PhoneRule.digits(phone)
         return PhoneVerificationSent(verificationId: 1, expiresInSeconds: 180)
     }
     func confirmPhoneCode(id: Int64, code: String) async throws -> String {

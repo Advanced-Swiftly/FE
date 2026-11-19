@@ -15,17 +15,21 @@ struct MainTabView: View {
         Group {
             if let store {
                 ZStack(alignment: .bottom) {
+                    // 챗봇 · 마이는 탭바 자리만큼 높이를 줄인다. safeAreaInset은 NavigationStack 안 화면까지
+                    // 전달되지 않아서, 화면 아래 입력창 · 버튼(safeAreaInset)이 탭바에 가려졌다.
+                    // 지도는 줄이지 않는다: 업체 상세를 열고 닫을 때(탭바 숨김 · 표시) 지도 높이가 바뀌어
+                    // 시트가 들썩이므로, 지도 시트가 탭바 높이를 직접 뺀다.
+                    let tabInset = store.tabBarHiders == 0 ? PawFitTabBar.height : 0
                     ZStack {
                         NavigationStack { ChatView(openMapPlace: openPlaceFromChat) }
+                            .padding(.bottom, tabInset)
                             .opacity(tab == .chat ? 1 : 0).allowsHitTesting(tab == .chat)
                         MapHomeView(focusPlaceId: $focusPlaceId)   // 지도는 자체 NavigationStack(경로 제어)
                             .ignoresSafeArea(.keyboard, edges: .bottom)
                             .opacity(tab == .map ? 1 : 0).allowsHitTesting(tab == .map)
                         NavigationStack { MyView(selectTab: { tab = $0 }) }
+                            .padding(.bottom, tabInset)
                             .opacity(tab == .my ? 1 : 0).allowsHitTesting(tab == .my)
-                    }
-                    .safeAreaInset(edge: .bottom, spacing: 0) {
-                        if store.tabBarHiders == 0 { Color.clear.frame(height: 49) }
                     }
                     if store.tabBarHiders == 0 {
                         PawFitTabBar(selection: $tab)
@@ -34,6 +38,7 @@ struct MainTabView: View {
                     }
                 }
                 .environment(store)
+                .onChange(of: tab) { UIApplication.shared.endEditing() }   // 탭을 바꾸면 키보드를 내린다
                 .fullScreenCover(isPresented: $showDogRegistration) {
                     DogRegistrationFlow(onFinish: { showDogRegistration = false })
                         .environment(store)
@@ -54,6 +59,7 @@ struct MainTabView: View {
     @State private var focusPlaceId: String?
 
     private func openPlaceFromChat(_ placeId: String) {
+        UIApplication.shared.endEditing()   // 챗봇 키보드가 지도 · 업체 상세 위에 남지 않게
         focusPlaceId = placeId
         tab = .map
     }
@@ -61,6 +67,7 @@ struct MainTabView: View {
 
 /// 캔버스 탭바: 높이 83(홈 표시줄 포함), 아이콘만, 선택 = 채운 브랜드색
 struct PawFitTabBar: View {
+    static let height: CGFloat = 49
     @Binding var selection: MainTabView.Tab
 
     var body: some View {
@@ -71,7 +78,7 @@ struct PawFitTabBar: View {
         }
         .padding(.top, 10)
         .frame(maxWidth: .infinity, alignment: .top)
-        .frame(height: 49, alignment: .top)
+        .frame(height: Self.height, alignment: .top)
         .background(PawFitColor.background.ignoresSafeArea(edges: .bottom))
         .overlay(alignment: .top) { Rectangle().fill(PawFitColor.separator.opacity(0.6)).frame(height: 0.5) }
     }

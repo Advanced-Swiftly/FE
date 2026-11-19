@@ -132,6 +132,9 @@ struct NotificationSettings: Codable, Equatable, Sendable {
 
 struct Withdrawal: Encodable, Sendable { let password: String; let reason: String? }
 
+/// PATCH /users/me/password — 성공 204. 서버가 이 계정의 리프레시 토큰을 모두 폐기한다(다시 로그인 필요).
+struct PasswordChange: Encodable, Sendable { let currentPassword: String; let newPassword: String }
+
 // MARK: - 회원가입 — BE auth/api/dto
 
 struct Term: Decodable, Identifiable, Hashable, Sendable {

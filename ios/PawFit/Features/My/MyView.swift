@@ -263,6 +263,8 @@ struct AccountView: View {
     @State private var name = ""
     @State private var editingAddress = false
     @State private var showWithdraw = false
+    @State private var editingPhone = false
+    @State private var editingPassword = false
     @State private var busy = false
     @State private var message: String?
 
@@ -287,10 +289,10 @@ struct AccountView: View {
 
                     section("로그인 정보") {
                         row("휴대폰 번호", me.map { PhoneRule.format($0.phoneNumber) } ?? "") {
-                            message = "번호 변경은 다음 업데이트에서 열려요"
+                            if me != nil { editingPhone = true }
                         }
                         Rectangle().fill(PawFitColor.separator).frame(height: 0.5)
-                        row("비밀번호", "바꾸기") { message = "비밀번호 변경은 다음 업데이트에서 열려요" }
+                        row("비밀번호", "바꾸기") { editingPassword = true }
                     }
 
                     section("배송지") {
@@ -316,6 +318,14 @@ struct AccountView: View {
         .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $editingAddress) { AddressSheet(address: $address) }
         .sheet(isPresented: $showWithdraw) { WithdrawSheet() }
+        .sheet(isPresented: $editingPhone) {
+            PhoneChangeSheet(currentPhone: me?.phoneNumber ?? "") { _ in
+                Task { me = try? await store.api.me() }
+                store.bumpRevision()   // 마이 탭 첫 화면의 번호도 다시 읽게
+                message = "휴대폰 번호를 바꿨어요"
+            }
+        }
+        .sheet(isPresented: $editingPassword) { PasswordChangeSheet() }
         .toast($message)
         .task {
             me = try? await store.api.me()

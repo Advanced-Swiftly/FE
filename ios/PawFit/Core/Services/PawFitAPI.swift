@@ -9,6 +9,10 @@ protocol PawFitAPI: Sendable {
     func notificationSettings() async throws -> NotificationSettings
     func updateNotificationSettings(_ s: NotificationSettings) async throws -> NotificationSettings
     func withdraw(password: String) async throws
+    /// 새 번호로 받은 휴대폰 인증 토큰(purpose CHANGE_PHONE)으로 번호를 바꾼다
+    func changePhone(verificationToken: String) async throws -> ProfileUpdated
+    /// 성공하면 서버가 리프레시 토큰을 모두 폐기한다 → 앱은 로그아웃하고 다시 로그인하게 한다
+    func changePassword(current: String, new: String) async throws
 
     // 반려견
     func dogs() async throws -> [DogSummary]
@@ -49,7 +53,7 @@ protocol PawFitAPI: Sendable {
 
     // 회원가입
     func terms() async throws -> [Term]
-    func sendPhoneCode(_ phone: String) async throws -> PhoneVerificationSent
+    func sendPhoneCode(_ phone: String, purpose: PhoneVerificationPurpose) async throws -> PhoneVerificationSent
     func confirmPhoneCode(id: Int64, code: String) async throws -> String
     func signup(_ r: SignupRequest) async throws -> SignupResponse
 }
@@ -71,6 +75,14 @@ struct LivePawFitAPI: PawFitAPI {
     func withdraw(password: String) async throws {
         let _: EmptyResponse = try await api.send(Endpoint(method: .delete, path: APIPath.me,
                                                            body: Withdrawal(password: password, reason: nil)))
+    }
+    func changePhone(verificationToken: String) async throws -> ProfileUpdated {
+        try await api.send(Endpoint(method: .patch, path: APIPath.me,
+                                    body: ProfileUpdate(phoneVerificationToken: verificationToken)))
+    }
+    func changePassword(current: String, new: String) async throws {
+        let _: EmptyResponse = try await api.send(Endpoint(method: .patch, path: APIPath.mePassword,
+                                                           body: PasswordChange(currentPassword: current, newPassword: new)))
     }
 
     // MARK: 반려견
@@ -187,9 +199,9 @@ struct LivePawFitAPI: PawFitAPI {
                                                       requiresAuth: false))
         return r.terms
     }
-    func sendPhoneCode(_ phone: String) async throws -> PhoneVerificationSent {
+    func sendPhoneCode(_ phone: String, purpose: PhoneVerificationPurpose) async throws -> PhoneVerificationSent {
         try await api.send(Endpoint(method: .post, path: APIPath.phoneVerifications,
-                                    body: PhoneVerificationRequest(phoneNumber: PhoneRule.digits(phone), purpose: .signUp),
+                                    body: PhoneVerificationRequest(phoneNumber: PhoneRule.digits(phone), purpose: purpose),
                                     requiresAuth: false))
     }
     func confirmPhoneCode(id: Int64, code: String) async throws -> String {

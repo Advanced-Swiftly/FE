@@ -199,16 +199,23 @@ struct RoadView: View {
                             .foregroundStyle(top ? .white : PawFitColor.textPrimary)
                             .padding(.horizontal, 12).padding(.top, 14).padding(.bottom, 12)
                             .background(top ? PawFitColor.brand : PawFitColor.surfaceNeutral, in: RoundedRectangle(cornerRadius: 16))
+                            // 배지는 카드 위 테두리에 걸쳐 둔다 (카드 안에 두면 상품 이름을 가린다)
                             .overlay(alignment: .topTrailing) {
                                 if top {
                                     Text("최고 상품").font(.pawfit(11, .bold)).foregroundStyle(PawFitColor.brand)
-                                        .padding(.horizontal, 7).frame(height: 20).background(.white, in: Capsule())
-                                        .padding(8)
+                                        .padding(.horizontal, 8).frame(height: 20)
+                                        .background(.white, in: Capsule())
+                                        .overlay(Capsule().strokeBorder(PawFitColor.brand, lineWidth: 1))
+                                        .padding(.trailing, 10)
+                                        .offset(y: -10)
+                                        .accessibilityHidden(true)
                                 }
                             }
+                            .accessibilityElement(children: .combine)
+                            .accessibilityLabel(top ? "최고 상품, \(prize.name) \(prize.quantity)명" : "\(prize.name) \(prize.quantity)명")
                         }
                     }
-                    .padding(.top, 16)
+                    .padding(.top, 20)   // 걸쳐 둔 '최고 상품' 배지 자리
                 }
                 .padding(.horizontal, 20).padding(.top, 28)
             }
