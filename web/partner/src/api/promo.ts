@@ -424,7 +424,7 @@ export async function applyEvent(form: EventApplyForm): Promise<{ id: string }> 
     const ev = MOCK_EVENTS.find((e) => e.eventId === form.eventId);
     const store = MOCK_STORES.find((s) => s.id === form.storeId);
     if (!ev || ev.phase !== 'RECRUITING') throw mockError('RECRUITMENT_NOT_OPEN');
-    if (!body.qrPledgeAgreed || body.intro.length < 1 || body.intro.length > 40) throw mockError('VALIDATION_ERROR');
+    if (body.intro.length > 500) throw mockError('VALIDATION_ERROR');
     const elig = await getEligibility(form.eventId, form.storeId);
     if (elig.existingApplication) throw mockError('DUPLICATE_APPLICATION');
     if (!elig.allPassed) throw mockError('ELIGIBILITY_NOT_MET');

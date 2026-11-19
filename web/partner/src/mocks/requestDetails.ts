@@ -15,7 +15,7 @@ export const MOCK_REQUEST_DETAILS: Record<string, ConditionRequestDetailDto> = {
     latestConditionsVersion: 7,
     baseChanged: false,
     changes: [
-      { field: 'sizeLimit', currentValue: null, currentUnrestricted: true, latestValue: null, latestUnrestricted: true, requestedValue: 'MEDIUM', requestedUnrestricted: false },
+      { field: 'restrictedBreeds', currentValue: null, currentUnrestricted: true, latestValue: null, latestUnrestricted: true, requestedValue: ['도베르만'], requestedUnrestricted: false },
     ],
     evidences: [
       { kind: 'FILE', fileName: 'instagram_공지_1020.png', url: SAMPLE_FILE },

@@ -6,7 +6,7 @@ import type { Account, Term } from '@/types';
 export const MOCK_INQUIRIES: InquiryDto[] = [
   {
     inquiryId: 'Q-0310',
-    type: 'QR · 방문 인증',
+    type: '입장 조건 · QR',
     title: '매장 QR을 다시 내려받아도 예전 QR이 계속 되나요?',
     content: '프린트한 QR이 찢어져서 새로 뽑으려고 해요.',
     relatedRequest: null,

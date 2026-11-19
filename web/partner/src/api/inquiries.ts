@@ -47,9 +47,9 @@ export async function getInquiryPage(opts: { status?: 'WAITING' | 'ANSWERED'; cu
   return { items: dto.inquiries.map(toInquiry), nextCursor: dto.nextCursor };
 }
 
-/** 문의 유형 ↔ API 문서 category (ACCOUNT · PLACE · EVENT · ETC). QR · 방문 인증의 분류는 백엔드 확인 사항 */
-const TYPE_TO_CATEGORY: Record<string, 'ACCOUNT' | 'PLACE' | 'EVENT' | 'ETC'> = { '입장 조건': 'PLACE', '이벤트 · 광고': 'EVENT', 'QR · 방문 인증': 'PLACE', '가입 · 계정': 'ACCOUNT', 기타: 'ETC' };
-const CATEGORY_TO_TYPE: Record<string, string> = { PLACE: '입장 조건', EVENT: '이벤트 · 광고', ACCOUNT: '가입 · 계정', ETC: '기타' };
+/** 문의 유형 ↔ BE category (ACCOUNT · PLACE · EVENT · ETC) */
+const TYPE_TO_CATEGORY: Record<string, 'ACCOUNT' | 'PLACE' | 'EVENT' | 'ETC'> = { '입장 조건 · QR': 'PLACE', '이벤트 · 광고': 'EVENT', '가입 · 계정': 'ACCOUNT', 기타: 'ETC' };
+const CATEGORY_TO_TYPE: Record<string, string> = { PLACE: '입장 조건 · QR', EVENT: '이벤트 · 광고', ACCOUNT: '가입 · 계정', ETC: '기타' };
 
 /** 내 문의 목록 · 상세 응답 (GET /inquiries · /inquiries/{id}) — 예시에 없는 값은 비워 둬요 */
 interface MyInquiryDto {

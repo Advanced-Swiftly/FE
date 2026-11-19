@@ -1,6 +1,8 @@
 import { useState } from 'react';
+import { USE_MOCK } from '@/api/client';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { getRequestPage, type RequestStatusFilter, type RequestTypeFilter } from '@/api/requests';
+import { getTitledRequestPage } from '@/api/policyItems';
+import type { RequestStatusFilter, RequestTypeFilter } from '@/api/requests';
 import { Button, ButtonLink } from '@/components/common/Button';
 import { Icon } from '@/components/common/Icon';
 import { KpiCard } from '@/components/common/KpiCard';
@@ -33,7 +35,7 @@ export function RequestsPage() {
   const [status, setStatus] = useState<RequestStatusFilter>('ALL');
   const [summary, setSummary] = useState<RequestPage['summary'] | null>(null);
   const list = useCursorList(`requests:${store.id}:${type}:${status}`, async (cursor) => {
-    const res = await getRequestPage(store.id, { type, status, cursor });
+    const res = await getTitledRequestPage(store.id, { type, status, cursor });
     if (!cursor) setSummary(res.summary);
     return res;
   });
@@ -70,12 +72,14 @@ export function RequestsPage() {
           <KpiCard label="진행 중" value={summary.inProgress} unit="건" />
           <KpiCard label="내가 할 일" value={summary.needsAction} unit="건 · 보완 요청" tone="warning" />
           <KpiCard label="완료" value={summary.done} unit="건" />
-          <KpiCard
-            label="평균 처리"
-            value={summary.avgProcessingDays === null ? '–' : summary.avgProcessingDays}
-            unit={summary.avgProcessingDays === null ? '' : '일'}
-            caption={summary.avgProcessingDays === null ? '끝난 요청이 아직 없어요' : '최근 90일 승인 · 반려 기준'}
-          />
+          {USE_MOCK && (
+            <KpiCard
+              label="평균 처리"
+              value={summary.avgProcessingDays === null ? '–' : summary.avgProcessingDays}
+              unit={summary.avgProcessingDays === null ? '' : '일'}
+              caption={summary.avgProcessingDays === null ? '끝난 요청이 아직 없어요' : '최근 90일 승인 · 반려 기준'}
+            />
+          )}
         </StatGrid>
       )}
 
@@ -117,13 +121,13 @@ export function RequestsPage() {
                 const fix = r.kind === 'CONDITION' && r.status === 'NEEDS_INFO' && !r.operatorLabel;
                 return (
                   <li key={`${r.kind}:${r.appKind ?? ''}:${r.id}`} className={`${styles.row} ${fix ? styles.fixRow : ''}`}>
-                    <span className={styles.date}>{formatDate(r.submittedAt)}</span>
+                    <span className={styles.date}>{formatDate(r.submittedAt) || r.periodText || '–'}</span>
                     <span className={styles.type}>
                       <Tag tone={KIND[r.kind].tone}>{KIND[r.kind].label}</Tag>
                     </span>
                     <span className={styles.text}>
-                      <strong>{r.summaryText ?? (r.kind === 'CONDITION' ? '입장 조건 변경 요청' : '이벤트 · 광고 신청')}</strong>
-                      {r.sourcePreview && <span className={styles.subNote}>{r.sourcePreview}</span>}
+                      <strong>{(r.operatorLabel ? null : r.sourcePreview) ?? r.summaryText ?? (r.kind === 'CONDITION' ? '입장 조건 변경 요청' : '이벤트 · 광고 신청')}</strong>
+                      {r.operatorLabel && r.sourcePreview && <span className={styles.subNote}>{r.sourcePreview}</span>}
                       {r.operatorLabel && <span className={styles.subNote}>운영자가 직접 처리한 건이라 상세 내용을 열 수 없어요. 궁금한 점은 문의하기로 남겨 주세요.</span>}
                       {fix && <span className={styles.fixNote}>보완 요청이 왔어요. 사유를 보고 다시 보내 주세요.</span>}
                     </span>

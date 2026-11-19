@@ -20,7 +20,7 @@ export const MOCK_CONDITIONS: Record<string, PlaceConditionsDto> = {
     },
     unrestrictedFields: ['sizeLimit', 'restrictedBreeds'],
     pendingItems: [
-      { field: 'sizeLimit', requestId: 'REQ-0142', status: 'IN_REVIEW' },
+      { field: 'restrictedBreeds', requestId: 'REQ-0142', status: 'IN_REVIEW' },
       { field: 'vaccinationRequired', requestId: 'REQ-0131', status: 'NEEDS_INFO' },
     ],
   },

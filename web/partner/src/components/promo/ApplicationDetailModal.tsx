@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, type MouseEvent } from 'react';
+import { fileUrl } from '@/api/files';
 import { cancelApplication, getApplication, updateAdPeriod, type ApplicationContext } from '@/api/promo';
 import { Button } from '@/components/common/Button';
 import { Field, Select, TextInput } from '@/components/common/Field';
@@ -61,15 +62,42 @@ function steps(a: Application): TimelineItem[] {
             : { title: '승인 / 반려', state: 'todo' };
     return [received, review, result];
   }
-  // 광고: 결제 · 노출 단계는 후순위 (명세 WAD-7)
+  // 광고: BE 상태(접수 · 검토 · 승인 · 반려)만 보여 줘요
   return [
     received,
-    shown === 'RECEIVED' || shown === 'IN_REVIEW'
-      ? { title: '운영자 검토', meta: '보통 1–2일', state: 'current' }
-      : { title: '운영자 검토', meta: shown === 'REJECTED' ? '반려' : '승인', state: shown === 'REJECTED' ? 'danger' : 'done' },
-    { title: '승인 · 결제', meta: '결제 안내는 준비 중이에요', state: 'todo' },
-    { title: '노출 시작', meta: a.ad ? formatDate(a.ad.startDate, true) : undefined, state: 'todo' },
+    { title: '운영자 검토', state: shown === 'APPROVED' || shown === 'REJECTED' ? 'done' : 'current' },
+    shown === 'APPROVED' ? { title: '승인', state: 'done' } : shown === 'REJECTED' ? { title: '반려', state: 'danger' } : { title: '승인 / 반려', state: 'todo' },
   ];
+}
+
+/** 광고 소재 — 누를 때 임시 열람 주소를 받아 새 탭으로 열어요 */
+function CreativeLink({ url }: { url: string }) {
+  const [failed, setFailed] = useState(false);
+  const open = async (e: MouseEvent<HTMLAnchorElement>) => {
+    e.preventDefault();
+    setFailed(false);
+    // 주소를 기다린 뒤에 열면 브라우저가 팝업으로 막아서, 누른 순간 탭을 먼저 열어요
+    const tab = window.open('', '_blank');
+    if (!tab) {
+      setFailed(true);
+      return;
+    }
+    tab.opener = null;
+    try {
+      tab.location.href = await fileUrl(url);
+    } catch {
+      tab.close();
+      setFailed(true);
+    }
+  };
+  return (
+    <>
+      <a href={url} target="_blank" rel="noopener noreferrer" onClick={open}>
+        소재 열기
+      </a>
+      {failed && <span role="alert"> · 소재를 열지 못했어요. 다시 시도해 주세요.</span>}
+    </>
+  );
 }
 
 /** UI-W-017 신청 내역 상세 (F-WAD-06 · 07 · 08) */
@@ -130,7 +158,7 @@ export function ApplicationDetailModal({ id, appKind = null, context, ids, onMov
           ...(a.ad.region ? [{ label: '노출 지역', value: a.ad.region }] : []),
           { label: '기간', value: `${periodText({ startDate: a.ad.startDate, endDate: a.ad.endDate })} (${a.ad.weeks ? `${a.ad.weeks}주` : `${currentDays}일`})` },
           ...(a.creativeUrl && /^https?:\/\//.test(a.creativeUrl)
-            ? [{ label: '광고 소재', value: <a href={a.creativeUrl} target="_blank" rel="noopener noreferrer">소재 열기</a> }]
+            ? [{ label: '광고 소재', value: <CreativeLink url={a.creativeUrl} /> }]
             : []),
           ...(a.message ? [{ label: '전달사항', value: a.message }] : []),
         ]
@@ -139,8 +167,7 @@ export function ApplicationDetailModal({ id, appKind = null, context, ids, onMov
             { label: '매장', value: storeName },
             ...(a.stampRoad.periodId ? [{ label: '분기', value: `${a.stampRoad.periodId} · ${periodText(a.stampRoad.period)}` }] : []),
             ...(a.stampRoad.recruitment.startAt ? [{ label: '신청 기간', value: recruitmentText(a.stampRoad) }] : []),
-            ...(a.stampRoad.intro ? [{ label: '한 줄 소개', value: a.stampRoad.intro }] : []),
-            ...(a.stampRoad.qrPledgeAgreed ? [{ label: 'QR 비치 약속', value: '동의함' }] : []),
+            ...(a.stampRoad.intro ? [{ label: '전달사항', value: a.stampRoad.intro }] : []),
           ]
         : []
     : [];

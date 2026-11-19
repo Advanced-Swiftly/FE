@@ -1,7 +1,10 @@
 import { useState, type ReactNode } from 'react';
-import { CODE_RE, diffConditions, KNOWN_CODE_LABEL, RULE_GROUP_LABEL, RULE_GROUPS, type PolicyRule, type RuleGroup, type RuleSet, type EntryConditions, type AreaPolicy } from '@/api/policy';
+import { CODE_RE, diffConditions, KNOWN_CODE_LABEL, RULE_GROUP_LABEL, RULE_GROUPS, type PolicyRule, type RuleGroup, type RuleSet, type EntryConditions, type AreaPolicy, type StorePolicy } from '@/api/policy';
+import { changedPolicyItems, describePolicyItem, draftPolicy, policyItemLabel, type PolicyItem } from '@/api/policyItems';
 import { Button } from '@/components/common/Button';
-import { Choice, InputRow, Select, TextInput } from '@/components/common/Field';
+import { Choice, Field, InputRow, Select, TextArea, TextInput } from '@/components/common/Field';
+import { Icon } from '@/components/common/Icon';
+import { Tag } from '@/components/common/Tag';
 import styles from './PolicyRules.module.css';
 
 /** 조건 코드 → 화면 이름 (견종은 견종 ID → 이름, 나머지는 아는 코드만 이름) */
@@ -89,14 +92,162 @@ export function ConditionChanges({ before, after }: { before?: EntryConditions |
   );
 }
 
-/** 정책 편집 — 지금 정책 전체를 받아서 고친 전체 정책을 돌려줘요 (빠진 조건이 지워지지 않게) */
-export function PolicyRulesEditor({ value, onChange, breeds }: { value: RuleSet; onChange: (next: RuleSet) => void; breeds: Map<string, string> }) {
+interface SectionContext {
+  base: StorePolicy;
+  value: RuleSet;
+  breeds: Map<string, string>;
+}
+
+/** 표 항목 하나의 입력 카드 — 지금 값과 바뀐 값을 함께 보여 줘요 */
+function ItemSection({ item, base, value, breeds, children }: SectionContext & { item: PolicyItem; children: ReactNode }) {
+  const titleId = `policy-title-${item}`;
+  const isChanged = changedPolicyItems(base, value).includes(item);
+  const before = describePolicyItem(base, item, breeds).text;
+  const after = describePolicyItem(draftPolicy(base, value), item, breeds).text;
   return (
-    <div className={styles.groups}>
-      <AreaConditionsEditor value={value.conditions} requiredEquipment={value.equipmentRules.filter((r) => r.required).map((r) => r.code)} onChange={conditions => onChange({...value, conditions})} />
-      {RULE_GROUPS.filter(g=>g!=='equipmentRules'||!value.conditions).map((g) => (
-        <GroupEditor key={g} group={g} list={value[g]} breeds={breeds} onChange={(list) => onChange({ ...value, [g]: list })} />
-      ))}
+    <section id={`policy-item-${item}`} aria-labelledby={titleId} className={`${styles.section} ${isChanged ? styles.sectionChanged : ''}`}>
+      <header className={styles.sectionHead}>
+        <h3 id={titleId} className={styles.sectionTitle}>
+          {policyItemLabel(item)}
+          {isChanged && (
+            <Tag tone="primary" shape="pill">
+              변경됨
+            </Tag>
+          )}
+        </h3>
+        <span className={styles.current}>지금: {before}</span>
+      </header>
+      {children}
+      {isChanged && before !== after && (
+        <p className={styles.diff}>
+          <del>{before}</del>
+          <Icon name="arrowRight" size={16} />
+          <ins>{after}</ins>
+        </p>
+      )}
+    </section>
+  );
+}
+
+const AREA_NAME = { indoor: '실내', outdoor: '야외 테라스' } as const;
+const AREA_KEYS = ['indoor', 'outdoor'] as const;
+const AREA_EQUIPMENT = ['STROLLER', 'CARRIER', 'BELLY_BAND', 'LEASH'];
+const VACCINE_OPTIONS = ['RABIES', 'DHPPL'];
+
+/** 정책 편집 — 지금 정책 전체를 받아서 고친 전체 정책을 돌려줘요 (빠진 조건이 지워지지 않게) */
+export function PolicyRulesEditor({ base, value, onChange, breeds }: { base: StorePolicy; value: RuleSet; onChange: (next: RuleSet) => void; breeds: Map<string, string> }) {
+  const requiredEquipment = value.equipmentRules.filter((r) => r.required).map((r) => r.code);
+  // 구역을 지정하면 서버는 구역별 준비물만 판정해요. 처음 구역 조건을 만들 때 기존 필수 준비물이 빠지지 않게 이어받아요
+  const c: EntryConditions = value.conditions ?? { petsAllowed: true, indoor: { allowed: true, maxWeightKg: null, equipmentCodes: requiredEquipment }, outdoor: { allowed: false, equipmentCodes: requiredEquipment } };
+  const set = (patch: Partial<EntryConditions>) => onChange({ ...value, conditions: { ...c, ...patch } });
+  const area = (key: 'indoor' | 'outdoor', patch: Partial<AreaPolicy>) => set({ [key]: { allowed: true, equipmentCodes: [], ...c[key], ...patch } });
+  const setRules = (group: RuleGroup, list: PolicyRule[]) => onChange({ ...value, [group]: list });
+  const openAreas = AREA_KEYS.filter((key) => c[key]?.allowed);
+  // 실내 제한을 넘는 반려견이 야외를 쓸 수 있는지 — 별도 필드 없이 야외 구역 조건으로 저장해요
+  const indoorLimit = c.indoor?.allowed ? c.indoor.maxWeightKg : null;
+  const outdoorForOverLimit = c.outdoor?.allowed === true && (!c.outdoor.maxWeightKg || (indoorLimit != null && c.outdoor.maxWeightKg > indoorLimit));
+  const section = { base, value, breeds };
+  const noArea = <p className={styles.muted}>이용 구역을 먼저 골라 주세요.</p>;
+
+  return (
+    <div className={styles.sections}>
+      <ItemSection item="pets" {...section}>
+        <div className={styles.choices}>
+          <Choice type="radio" name="policy-pets" boxed label="동반 가능" checked={c.petsAllowed !== false} onChange={() => set({ petsAllowed: true })} />
+          <Choice type="radio" name="policy-pets" boxed label="동반 불가" checked={c.petsAllowed === false} onChange={() => set({ petsAllowed: false })} />
+        </div>
+      </ItemSection>
+
+      <ItemSection item="area" {...section}>
+        <div className={styles.choices}>
+          {AREA_KEYS.map((key) => (
+            <Choice key={key} type="checkbox" boxed label={`${AREA_NAME[key]} 이용 가능`} checked={c[key]?.allowed === true} onChange={(e) => area(key, { allowed: e.target.checked })} />
+          ))}
+        </div>
+      </ItemSection>
+
+      <ItemSection item="weight" {...section}>
+        {openAreas.length === 0 ? (
+          noArea
+        ) : (
+          <div className={styles.twoCol}>
+            {openAreas.map((key) => (
+              <Field key={key} label={`${AREA_NAME[key]} 최대 체중`} htmlFor={`area-${key}-weight`} hint="비우면 체중 제한 없음">
+                <div className={styles.inline}>
+                  <TextInput id={`area-${key}-weight`} className={styles.number} type="number" min="0.01" max="9999.99" step="0.01" value={c[key]?.maxWeightKg ?? ''} onChange={(e) => area(key, { maxWeightKg: e.target.value ? Number(e.target.value) : null })} />
+                  <span>kg 이하</span>
+                </div>
+              </Field>
+            ))}
+          </div>
+        )}
+        {indoorLimit ? (
+          <div role="radiogroup" aria-labelledby="policy-over-limit" className={styles.subGroup}>
+            <span id="policy-over-limit" className={styles.subLabel}>
+              실내 제한 체중을 넘는 반려견
+            </span>
+            <div className={styles.choices}>
+              <Choice type="radio" name="over-limit" boxed label="입장 불가" checked={!outdoorForOverLimit} onChange={() => area('outdoor', { allowed: false })} />
+              <Choice type="radio" name="over-limit" boxed label="야외 테라스만 이용 가능" checked={outdoorForOverLimit} onChange={() => area('outdoor', { allowed: true, maxWeightKg: null })} />
+            </div>
+          </div>
+        ) : null}
+      </ItemSection>
+
+      <ItemSection item="breed" {...section}>
+        <GroupEditor group="breedRules" list={value.breedRules} breeds={breeds} onChange={(list) => setRules('breedRules', list)} />
+      </ItemSection>
+
+      <ItemSection item="equipment" {...section}>
+        {openAreas.length === 0
+          ? noArea
+          : openAreas.map((key) => (
+              <div key={key} role="group" aria-label={`${AREA_NAME[key]} 필수 준비물`} className={styles.subGroup}>
+                <span className={styles.subLabel}>{AREA_NAME[key]} 필수 준비물</span>
+                <div className={styles.choices}>
+                  {[...new Set([...AREA_EQUIPMENT, ...(c[key]?.equipmentCodes ?? [])])].map((code) => (
+                    <Choice
+                      key={code}
+                      type="checkbox"
+                      boxed
+                      label={KNOWN_CODE_LABEL[code] ?? code}
+                      checked={c[key]?.equipmentCodes.includes(code) ?? false}
+                      onChange={(e) => area(key, { equipmentCodes: e.target.checked ? [...(c[key]?.equipmentCodes ?? []), code] : (c[key]?.equipmentCodes ?? []).filter((x) => x !== code) })}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+        {!value.conditions && <GroupEditor group="equipmentRules" list={value.equipmentRules} breeds={breeds} onChange={(list) => setRules('equipmentRules', list)} />}
+      </ItemSection>
+
+      <ItemSection item="vaccine" {...section}>
+        <GroupEditor group="vaccineRules" list={value.vaccineRules} breeds={breeds} onChange={(list) => setRules('vaccineRules', list)} />
+        <Choice type="checkbox" label="예방접종 확인 조건 검토 완료" checked={c.vaccinationConfirmed === true} onChange={(e) => set({ vaccinationConfirmed: e.target.checked })} />
+      </ItemSection>
+
+      <ItemSection item="effectiveFrom" {...section}>
+        <Field label="적용 시작일" htmlFor="policy-effective-from" hideLabel>
+          <TextInput id="policy-effective-from" className={styles.narrow} type="date" value={c.effectiveFrom ?? ''} onChange={(e) => set({ effectiveFrom: e.target.value || null })} />
+        </Field>
+      </ItemSection>
+
+      <ItemSection item="notice" {...section}>
+        <Field label="공지 문장" htmlFor="policy-notice" hideLabel hint={`${(c.notice ?? '').length}/500`}>
+          <TextArea id="policy-notice" rows={2} maxLength={500} value={c.notice ?? ''} onChange={(e) => set({ notice: e.target.value })} />
+        </Field>
+      </ItemSection>
+
+      <section aria-labelledby="policy-title-reason" className={styles.section}>
+        <header className={styles.sectionHead}>
+          <h3 id="policy-title-reason" className={styles.sectionTitle}>
+            변경 사유
+          </h3>
+        </header>
+        <Field label="변경 사유" htmlFor="policy-change-reason" hideLabel hint={`${(c.changeReason ?? '').length}/500`}>
+          <TextInput id="policy-change-reason" maxLength={500} value={c.changeReason ?? ''} onChange={(e) => set({ changeReason: e.target.value })} />
+        </Field>
+      </section>
     </div>
   );
 }
@@ -104,9 +255,10 @@ export function PolicyRulesEditor({ value, onChange, breeds }: { value: RuleSet;
 function GroupEditor({ group, list, breeds, onChange }: { group: RuleGroup; list: PolicyRule[]; breeds: Map<string, string>; onChange: (list: PolicyRule[]) => void }) {
   const [code, setCode] = useState('');
   const isBreed = group === 'breedRules';
+  const isVaccine = group === 'vaccineRules';
   const normalized = isBreed ? code : code.trim().toUpperCase();
   const dup = list.some((r) => r.code === normalized);
-  const valid = isBreed ? breeds.has(normalized) : CODE_RE.test(normalized);
+  const valid = isBreed ? breeds.has(normalized) : isVaccine ? VACCINE_OPTIONS.includes(normalized) : CODE_RE.test(normalized);
   const add = () => {
     if (!valid || dup) return;
     onChange([...list, { code: normalized, required: true }]);
@@ -114,11 +266,8 @@ function GroupEditor({ group, list, breeds, onChange }: { group: RuleGroup; list
   };
   const id = `rule-${group}`;
   return (
-    <fieldset className={styles.group}>
-      <legend>{RULE_GROUP_LABEL[group]}</legend>
-      {list.length === 0 ? (
-        <p className={styles.muted}>조건 없음</p>
-      ) : (
+    <div className={styles.subGroup}>
+      {list.length > 0 && (
         <ul className={styles.list}>
           {list.map((r) => (
             <li key={r.code} className={styles.row}>
@@ -132,7 +281,16 @@ function GroupEditor({ group, list, breeds, onChange }: { group: RuleGroup; list
         </ul>
       )}
       <InputRow>
-        {isBreed ? (
+        {isVaccine ? (
+          <Select id={id} aria-label={`${RULE_GROUP_LABEL[group]} 추가`} value={code} onChange={(e) => setCode(e.target.value)}>
+            <option value="">예방접종 고르기</option>
+            {VACCINE_OPTIONS.filter((v) => !list.some((r) => r.code === v)).map((v) => (
+              <option key={v} value={v}>
+                {KNOWN_CODE_LABEL[v]}
+              </option>
+            ))}
+          </Select>
+        ) : isBreed ? (
           <Select id={id} aria-label={`${RULE_GROUP_LABEL[group]} 추가`} value={code} onChange={(e) => setCode(e.target.value)}>
             <option value="">견종 고르기</option>
             {[...breeds.entries()]
@@ -144,7 +302,7 @@ function GroupEditor({ group, list, breeds, onChange }: { group: RuleGroup; list
               ))}
           </Select>
         ) : (
-          <TextInput id={id} aria-label={`${RULE_GROUP_LABEL[group]} 코드 추가`} placeholder={group === 'equipmentRules' ? '예: CARRIER' : '예: RABIES'} value={code} maxLength={80} onChange={(e) => setCode(e.target.value)} />
+          <TextInput id={id} aria-label={`${RULE_GROUP_LABEL[group]} 코드 추가`} placeholder="예: CARRIER" value={code} maxLength={80} onChange={(e) => setCode(e.target.value)} />
         )}
         <Button variant="secondary" onClick={add} disabled={!valid || dup}>
           추가
@@ -152,40 +310,6 @@ function GroupEditor({ group, list, breeds, onChange }: { group: RuleGroup; list
       </InputRow>
       {!isBreed && code && !valid && <p className={styles.error}>영문 대문자로 시작하는 코드(대문자 · 숫자 · _)만 쓸 수 있어요.</p>}
       {dup && <p className={styles.error}>이미 있는 조건이에요.</p>}
-    </fieldset>
+    </div>
   );
-}
-
-const AREA_EQUIPMENT = ['STROLLER', 'CARRIER', 'BELLY_BAND', 'LEASH'];
-
-function AreaConditionsEditor({value,requiredEquipment,onChange}:{value?:EntryConditions|null;requiredEquipment:string[];onChange:(c:EntryConditions)=>void}) {
-  // 구역을 지정하면 서버는 구역별 준비물만 판정해요. 처음 구역 조건을 만들 때 기존 필수 준비물이 빠지지 않게 이어받아요
-  const c=value ?? {petsAllowed:true,indoor:{allowed:true,maxWeightKg:null,equipmentCodes:requiredEquipment},outdoor:{allowed:false,equipmentCodes:requiredEquipment}};
-  const set=(patch:Partial<EntryConditions>)=>onChange({...c,...patch});
-  const area=(key:'indoor'|'outdoor',patch:Partial<AreaPolicy>)=>set({[key]:{allowed:true,equipmentCodes:[],...c[key],...patch}});
-  // 실내 제한을 넘는 반려견이 야외를 쓸 수 있는지 — 별도 필드 없이 야외 구역 조건으로 저장해요
-  const indoorLimit=c.indoor?.allowed ? c.indoor.maxWeightKg : null;
-  const outdoorForOverLimit=c.outdoor?.allowed===true && (!c.outdoor.maxWeightKg || (indoorLimit!=null && c.outdoor.maxWeightKg>indoorLimit));
-  return <fieldset className={styles.group}>
-    <legend>이용 구역·체중·적용일</legend>
-    <Choice type="checkbox" label="반려견 동반 가능" checked={c.petsAllowed!==false} onChange={e=>set({petsAllowed:e.target.checked})}/>
-    {(['indoor','outdoor'] as const).map(key=><div key={key}>
-      <Choice type="checkbox" label={key==='indoor'?'실내 이용 가능':'야외 테라스 이용 가능'} checked={c[key]?.allowed===true} onChange={e=>area(key,{allowed:e.target.checked})}/>
-      {c[key]?.allowed && <>
-        <label>{key==='indoor'?'실내':'야외'} 최대 체중 (비우면 제한 없음)
-          <TextInput id={`area-${key}-weight`} type="number" min="0.01" max="9999.99" step="0.01" value={c[key]?.maxWeightKg ?? ''} onChange={e=>area(key,{maxWeightKg:e.target.value ? Number(e.target.value):null})}/>
-        </label>
-        {[...new Set([...AREA_EQUIPMENT,...(c[key]?.equipmentCodes ?? [])])].map(code=><Choice key={code} type="checkbox" label={`${KNOWN_CODE_LABEL[code] ?? code} 필수`} checked={c[key]?.equipmentCodes.includes(code) ?? false} onChange={e=>area(key,{equipmentCodes:e.target.checked ? [...(c[key]?.equipmentCodes ?? []),code]:(c[key]?.equipmentCodes ?? []).filter(x=>x!==code)})}/>)}
-      </>}
-    </div>)}
-    {indoorLimit ? <div role="radiogroup" aria-label="실내 제한 체중을 넘는 반려견">
-      <strong>실내 제한 체중을 넘는 반려견</strong>
-      <Choice type="radio" name="over-limit" label="입장 불가" checked={!outdoorForOverLimit} onChange={()=>area('outdoor',{allowed:false})}/>
-      <Choice type="radio" name="over-limit" label="야외 테라스만 이용 가능" checked={outdoorForOverLimit} onChange={()=>area('outdoor',{allowed:true,maxWeightKg:null})}/>
-    </div> : null}
-    <label>적용 시작일<TextInput type="date" value={c.effectiveFrom ?? ''} onChange={e=>set({effectiveFrom:e.target.value||null})}/></label>
-    <label>공지 문장<TextInput maxLength={500} value={c.notice ?? ''} onChange={e=>set({notice:e.target.value})}/></label>
-    <label>변경 사유<TextInput maxLength={500} value={c.changeReason ?? ''} onChange={e=>set({changeReason:e.target.value})}/></label>
-    <Choice type="checkbox" label="예방접종 확인 조건 검토 완료" checked={c.vaccinationConfirmed===true} onChange={e=>set({vaccinationConfirmed:e.target.checked})}/>
-  </fieldset>;
 }
