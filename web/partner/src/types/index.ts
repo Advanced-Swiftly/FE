@@ -156,6 +156,8 @@ export interface PartnerRequest {
   operatorLabel?: string | null;
   /** 이벤트 참여 신청의 이벤트 ID */
   eventId?: string | null;
+  /** 신청일이 없는 서버 목록에서 대신 보여 줄 광고 · 행사 기간 */
+  periodText?: string | null;
 }
 
 /** F-WREQ-01 응답 */
@@ -199,6 +201,8 @@ export interface RequestHistory {
 
 /** F-WREQ-04 조건 변경 요청 상세 (요청 상세 팝업) */
 export interface ConditionRequestDetail {
+  /** 운영자가 마지막으로 처리한 시각 */
+  reviewedAt?: string | null;
   requestNote?: ConditionRequestNote;
   sourceText?: string | null;
   requestedPolicy?: import('@/api/policy').RuleSet;
@@ -429,7 +433,7 @@ export interface VisitStats {
 
 /* ───────── 문의 ───────── */
 
-export const INQUIRY_TYPES = ['입장 조건', '이벤트 · 광고', 'QR · 방문 인증', '가입 · 계정', '기타'] as const;
+export const INQUIRY_TYPES = ['입장 조건 · QR', '이벤트 · 광고', '가입 · 계정', '기타'] as const;
 export type InquiryType = (typeof INQUIRY_TYPES)[number];
 
 /** 관련 신청 — F-WREQ-01 items[] 의 종류와 ID */

@@ -34,18 +34,21 @@ function steps(d: ConditionRequestDetail): TimelineItem[] {
   const at = (action: string) => d.history.filter((h) => h.action === action).pop();
   const submit = at('RESUBMIT') ?? at('SUBMIT');
   const review = at('START_REVIEW');
-  const items: TimelineItem[] = [{ title: at('RESUBMIT') ? '보완 제출 · 접수' : '요청 접수', meta: submit && time(submit.at), state: 'done' }];
+  // 서버 상세에는 단계별 이력이 없어서 접수 시각과 마지막 처리 시각을 써요
+  const receivedAt = submit?.at ?? d.submittedAt;
+  const reviewedAt = d.reviewedAt ? time(d.reviewedAt) : undefined;
+  const items: TimelineItem[] = [{ title: at('RESUBMIT') ? '보완 제출 · 접수' : '요청 접수', meta: receivedAt ? time(receivedAt) : undefined, state: 'done' }];
   switch (d.status) {
     case 'RECEIVED':
       return [...items, { title: '검토 시작', meta: '운영자가 확인을 시작하면 표시돼요', state: 'current' }, { title: '반영 · 확인일 갱신', state: 'todo' }];
     case 'IN_REVIEW':
-      return [...items, { title: '검토 중', meta: review && time(review.at), state: 'current' }, { title: '반영 · 확인일 갱신', meta: '승인되면 보호자 화면에 바로 반영', state: 'todo' }];
+      return [...items, { title: '검토 중', meta: review ? time(review.at) : reviewedAt, state: 'current' }, { title: '반영 · 확인일 갱신', meta: '승인되면 보호자 화면에 바로 반영', state: 'todo' }];
     case 'NEEDS_INFO':
-      return [...items, { title: '검토 시작', meta: review && time(review.at), state: 'done' }, { title: '보완 요청', meta: '아래 사유를 보고 보완해 주세요', state: 'current' }];
+      return [...items, { title: '검토 시작', meta: review && time(review.at), state: 'done' }, { title: '보완 요청', meta: reviewedAt ? `${reviewedAt} · 아래 사유를 보고 보완해 주세요` : '아래 사유를 보고 보완해 주세요', state: 'current' }];
     case 'APPROVED':
-      return [...items, { title: '검토 시작', meta: review && time(review.at), state: 'done' }, { title: '반영 · 확인일 갱신', meta: at('APPROVE') && time(at('APPROVE')!.at), state: 'done' }];
+      return [...items, { title: '검토 시작', meta: review && time(review.at), state: 'done' }, { title: '반영 · 확인일 갱신', meta: at('APPROVE') ? time(at('APPROVE')!.at) : reviewedAt, state: 'done' }];
     case 'REJECTED':
-      return [...items, { title: '검토 시작', meta: review && time(review.at), state: 'done' }, { title: '반려', meta: at('REJECT') && time(at('REJECT')!.at), state: 'danger' }];
+      return [...items, { title: '검토 시작', meta: review && time(review.at), state: 'done' }, { title: '반려', meta: at('REJECT') ? time(at('REJECT')!.at) : reviewedAt, state: 'danger' }];
     case 'CANCELED':
       return [...items, { title: '요청 취소', meta: at('CANCEL') && time(at('CANCEL')!.at), state: 'danger' }];
     default:

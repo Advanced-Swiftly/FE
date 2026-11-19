@@ -2,7 +2,7 @@ import type { Inquiry } from '@/types';
 import { USE_MOCK } from '@/api/client';
 import { useRef, useState, type FormEvent } from 'react';
 import { createInquiry, getFaqs, getInquiryPage } from '@/api/inquiries';
-import { getRequestPage } from '@/api/requests';
+import { getTitledRequestPage } from '@/api/policyItems';
 import { Button } from '@/components/common/Button';
 import { Card } from '@/components/common/Card';
 import { Choice, Field, Select, TextArea, TextInput } from '@/components/common/Field';
@@ -53,7 +53,7 @@ export function InquiryPage() {
   // 관련 신청 고르기: 승인된 매장이 있을 때만, 진행 중인 요청 (F-WREQ-01 status=IN_PROGRESS 첫 페이지)
   const requests = useFetch(`requests:${store?.id ?? 'none'}:open`, () =>
     // 운영자가 처리한 건은 내 요청이 아니라 문의에 연결할 수 없어요
-    store ? getRequestPage(store.id, { status: 'IN_PROGRESS', limit: 50 }).then((r) => r.items.filter((x) => !x.operatorLabel)) : Promise.resolve([]),
+    store ? getTitledRequestPage(store.id, { status: 'IN_PROGRESS', limit: 50 }).then((r) => r.items.filter((x) => !x.operatorLabel)) : Promise.resolve([]),
   );
   const submit = useAction(createInquiry);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -140,7 +140,7 @@ export function InquiryPage() {
               <option value="">{store ? '선택 안 함' : '승인된 매장이 생기면 고를 수 있어요'}</option>
               {openRequests.map((r) => (
                 <option key={`${r.kind}:${r.appKind ?? ''}:${r.id}`} value={`${r.kind}:${r.appKind ?? ''}:${r.id}`}>
-                  {r.appKind === 'AD' ? '광고 · ' : r.appKind === 'EVENT' ? '이벤트 · ' : ''}{r.summaryText ?? r.id} ({REQUEST_STATUS_LABEL[r.status]})
+                  {r.appKind === 'AD' ? '광고 · ' : r.appKind === 'EVENT' ? '이벤트 · ' : r.sourcePreview ? '입장 조건 · ' : ''}{r.sourcePreview ?? r.summaryText ?? r.id} ({REQUEST_STATUS_LABEL[r.status]})
                 </option>
               ))}
             </Select>

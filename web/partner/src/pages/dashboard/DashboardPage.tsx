@@ -3,8 +3,7 @@ import { Link } from 'react-router-dom';
 import { getConditions } from '@/api/conditions';
 import { USE_MOCK } from '@/api/client';
 import { getBreedNames, getStorePolicy } from '@/api/policy';
-import { PolicyRulesView } from '@/components/policy/PolicyRules';
-import { getRequestPage } from '@/api/requests';
+import { describePolicyItem, getTitledRequestPage, POLICY_ITEMS } from '@/api/policyItems';
 import { getVisitStats } from '@/api/stats';
 import { getDashboard } from '@/api/stores';
 import { Button } from '@/components/common/Button';
@@ -42,11 +41,12 @@ export function DashboardPage() {
   const range = lastDays(14);
   const stats = useFetch(`stats:${store.id}:${range.from}:${range.to}`, () => getVisitStats(store.id, range));
   // 명세 F-WREQ-01: 대시보드 최근 요청은 limit=3 으로 3건만 받아요. 요약 숫자(summary)도 같은 응답에서 써요.
-  const requests = useFetch(`requests:${store.id}:recent3`, () => getRequestPage(store.id, { limit: 3 }));
+  const requests = useFetch(`requests:${store.id}:recent3`, () => getTitledRequestPage(store.id, { limit: 3 }));
 
   const todayStr = todayISO();
   const today = new Date(`${todayStr}T00:00:00`);
   const c = conditions.data;
+  const serverPolicy = policy.data;
   const d = summary.data;
   const s = stats.data;
 
@@ -55,7 +55,7 @@ export function DashboardPage() {
   const peak = last14.length ? last14.reduce((a, b) => (b.count > a.count ? b : a)) : null;
   const todayVisits = last14[last14.length - 1];
 
-  // 진행 중 요청 수는 F-WDASH-02 값, 내가 할 일 수는 F-WREQ-01 summary.needsAction
+  // 진행 중 요청 수 · 내가 할 일 수는 요청 처리 현황과 같은 F-WREQ-01 summary 값
   const recent = requests.data?.items ?? [];
   // 요약이 없는 서버 목록에서는 0 으로 채우지 않고, 받은 목록의 보완 요청만 세요
   const fixCount = requests.data?.summary?.needsAction ?? recent.filter((r) => r.status === 'NEEDS_INFO').length;
@@ -89,7 +89,7 @@ export function DashboardPage() {
         <KpiCard label="댕댕로드 스탬프 적립" value={d?.stampCount ?? '–'} unit="개" caption="이번 달 QR 인증 중 스탬프가 쌓인 수" />
         <KpiCard
           label="진행 중인 요청"
-          value={d?.inProgressRequestCount ?? '–'}
+          value={requests.data?.summary?.inProgress ?? '–'}
           unit="건"
           caption={
             fixCount > 0
@@ -125,11 +125,26 @@ export function DashboardPage() {
           className={styles.conditions}
         >
           {USE_MOCK ? <LoadState status={conditions.status} onRetry={conditions.reload} /> : <LoadState status={policy.status} errorText={policy.error?.message} onRetry={policy.reload} />}
-          {policy.data && (
+          {serverPolicy && (
             <>
-              {policy.data.exists ? <PolicyRulesView rules={policy.data} breeds={breeds.data ?? new Map()} /> : <p className={page.muted}>아직 운영자가 확인한 입장 정책이 없어요.</p>}
+              {serverPolicy.exists ? (
+                <dl className={styles.condList}>
+                  {POLICY_ITEMS.map(({ key, label }) => {
+                    const row = describePolicyItem(serverPolicy, key, breeds.data ?? new Map());
+                    return (
+                      <div key={key} className={styles.condRow}>
+                        <dt>{label}</dt>
+                        <dd>{row.state === 'UNKNOWN' ? <JudgmentChip judgment="UNKNOWN" label="미확인" /> : row.text}</dd>
+                      </div>
+                    );
+                  })}
+                </dl>
+              ) : (
+                <p className={page.muted}>아직 운영자가 확인한 입장 정책이 없어요.</p>
+              )}
               <div className={styles.condFoot}>
-                <span>{policy.data.exists ? `정책 버전 ${policy.data.version}` : '정책 없음'}</span>
+                <span>{serverPolicy.exists ? `정책 버전 ${serverPolicy.version}` : '정책 없음'}</span>
+                {checkedAt && <span>조건 확인일: {formatDate(checkedAt)}</span>}
                 <Link to="/conditions" className={styles.condLink}>
                   입장 조건 현황 <Icon name="chevronRight" size={14} />
                 </Link>
@@ -209,7 +224,7 @@ export function DashboardPage() {
                   {recent.map((r) => (
                     <li key={`${r.kind}:${r.appKind ?? ''}:${r.id}`} className={styles.item}>
                       <span className={styles.itemText}>
-                        <span className={styles.itemTitle}>{r.summaryText ?? KIND_LABEL[r.kind]}</span>
+                        <span className={styles.itemTitle}>{(r.operatorLabel ? null : r.sourcePreview) ?? r.summaryText ?? KIND_LABEL[r.kind]}</span>
                         <span className={styles.muted}>
                           {KIND_LABEL[r.kind]} · {formatDate(r.submittedAt, true)} {r.kind === 'CONDITION' ? '접수' : '신청'}
                         </span>

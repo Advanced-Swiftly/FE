@@ -5,6 +5,7 @@ import type { Attachment, ConditionField, ConditionRequestDetail, PartnerRequest
 import { apiClient, mockResponse, USE_MOCK } from './client';
 import { mockError } from './errors';
 import { toId, toStoreId, type RawId } from './ids';
+import { periodText } from '@/utils/promo';
 
 // 명세 F-WREQ-01 · 04 · 05 (제출본 6.1.3절). 서버 응답(DTO) → 화면 타입 변환은 이 파일에서만 해요.
 
@@ -100,29 +101,47 @@ async function getSplitRequestPage(storeId: string, type: RequestTypeFilter, sta
     ...cond.map((d) => row(d, 'CONDITION')),
     ...events.map((d) => row(d, 'EVENT_AD', 'EVENT')),
     ...ads.map((d) => row(d, 'EVENT_AD', 'AD')),
-  ].filter((x): x is PartnerRequest => x !== null);
+  ]
+    .filter((x): x is PartnerRequest => x !== null)
+    .sort((a, b) => (Date.parse(b.submittedAt) || 0) - (Date.parse(a.submittedAt) || 0) || Number(b.id) - Number(a.id));
   const items = all.filter(x=>status==='ALL'||x.group===status);
   const summary={inProgress:all.filter(x=>x.group==='IN_PROGRESS').length,needsAction:all.filter(x=>x.status==='NEEDS_INFO'&&!x.operatorLabel).length,done:all.filter(x=>x.group==='DONE').length,avgProcessingDays:null};
   // 대시보드처럼 개수를 정해 부르면 그만큼만 (세 목록을 합친 정렬 기준이 없어 받은 순서 그대로)
-  return { summary, items: await withEventTitles(storeId, limit ? items.slice(0, limit) : items), nextCursor: null };
+  return { summary, items: await withApplicationInfo(storeId, limit ? items.slice(0, limit) : items), nextCursor: null };
 }
 
-/** 이벤트 신청 줄에 이벤트 이름을 붙여요 (신청의 eventId · 매장 ID 기준). 못 찾으면 이벤트 번호를 그대로 둬요 */
-async function withEventTitles(storeId: string, items: PartnerRequest[]) {
-  const ids = [...new Set(items.flatMap((x) => (x.appKind === 'EVENT' && x.eventId ? [x.eventId] : [])))];
-  const entries = await Promise.all(
-    ids.map(async (id) => {
-      const title = await apiClient
-        .get<{ title?: string | null }>(`/business/events/${enc(id)}`, { params: { placeId: storeId } })
-        .then((r) => r.data?.title ?? null)
-        .catch(() => null);
-      return [id, title] as const;
-    }),
-  );
-  const titles = new Map(entries);
+/** 서버 목록에 없는 이벤트 이름 · 광고와 행사 기간을 상세 API 로 채워요. 못 찾으면 있는 값만 보여 줘요 */
+async function withApplicationInfo(storeId: string, items: PartnerRequest[]) {
+  type Dates = { startDate?: string | null; endDate?: string | null };
+  const dates = (d?: Dates | null) => (d?.startDate && d.endDate ? periodText({ startDate: d.startDate, endDate: d.endDate }) : null);
+  const eventIds = [...new Set(items.flatMap((x) => (x.appKind === 'EVENT' && x.eventId ? [x.eventId] : [])))];
+  const adIds = items.flatMap((x) => (x.appKind === 'AD' ? [x.id] : []));
+  const [events, ads] = await Promise.all([
+    Promise.all(
+      eventIds.map(async (id) => {
+        const event = await apiClient
+          .get<{ title?: string | null; period?: Dates | null }>(`/business/events/${enc(id)}`, { params: { placeId: storeId } })
+          .then((r) => r.data)
+          .catch(() => null);
+        return [id, event] as const;
+      }),
+    ),
+    Promise.all(
+      adIds.map(async (id) => {
+        const ad = await apiClient
+          .get<Dates>(`/business/ad-applications/${enc(id)}`)
+          .then((r) => r.data)
+          .catch(() => null);
+        return [id, dates(ad)] as const;
+      }),
+    ),
+  ]);
+  const eventInfo = new Map(events);
+  const adPeriod = new Map(ads);
   return items.map((x) => {
-    const title = x.eventId ? titles.get(x.eventId) : null;
-    return title ? { ...x, summaryText: `${title} 참여 신청` } : x;
+    if (x.appKind === 'AD') return { ...x, periodText: adPeriod.get(x.id) ?? null };
+    const event = x.appKind === 'EVENT' && x.eventId ? eventInfo.get(x.eventId) : null;
+    return event ? { ...x, summaryText: event.title ? `${event.title} 참여 신청` : x.summaryText, periodText: dates(event.period) } : x;
   });
 }
 
@@ -185,6 +204,7 @@ export interface ConditionRequestDetailDto {
   /** BE 는 NEEDS_SUPPLEMENT 로 보내요 */
   status: RequestStatus | 'NEEDS_SUPPLEMENT';
   submittedAt?: string | null;
+  reviewedAt?: string | null;
   lastSubmittedAt?: string | null;
   baseVersion?: number | null;
   latestConditionsVersion?: number | null;
@@ -217,6 +237,7 @@ export function toRequestDetail(d: ConditionRequestDetailDto): ConditionRequestD
     status,
     // 상세 응답 예시에 없는 값은 빈 값으로 받아요 (화면이 멈추지 않게)
     submittedAt: d.submittedAt ?? '',
+    reviewedAt: d.reviewedAt ?? null,
     lastSubmittedAt: d.lastSubmittedAt ?? d.submittedAt ?? '',
     // 버전이 없으면 0 으로 채우지 않아요 — '조건이 바뀜'과 '비교할 수 없음'을 구분해요
     baseVersion: typeof d.baseVersion === 'number' ? d.baseVersion : null,

@@ -6,7 +6,7 @@ export const ELIGIBILITY_LABEL: Record<EligibilityCode, string> = {
   BUSINESS_VERIFIED: '업체 인증 승인',
   QR_ACTIVE: '매장 QR 발급 · 사용 중',
   CONDITION_CHECKED_RECENT: '입장 조건 확인일이 30일 이내',
-  QR_PLEDGE: '분기 동안 매장 QR을 보호자가 볼 수 있는 곳에 두기 (신청 때 동의)',
+  QR_PLEDGE: '분기 동안 매장 QR을 보호자가 볼 수 있는 곳에 두기',
 };
 
 export const BLOCKED_LABEL: Record<ApplyBlockedReason, string> = {

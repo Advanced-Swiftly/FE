@@ -85,6 +85,7 @@
   align-items: flex-start;
   gap: 6px;
   font-weight: 500;
+  overflow-wrap: anywhere;
 }
 
 .unknown {

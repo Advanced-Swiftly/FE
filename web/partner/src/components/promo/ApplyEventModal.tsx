@@ -2,7 +2,7 @@ import { USE_MOCK } from '@/api/client';
 import { useState } from 'react';
 import { applyEvent, getEligibility, getEvent } from '@/api/promo';
 import { Button } from '@/components/common/Button';
-import { Choice, Field, Select, TextInput } from '@/components/common/Field';
+import { Choice, Field, Select, TextArea } from '@/components/common/Field';
 import { Icon } from '@/components/common/Icon';
 import { LoadState } from '@/components/common/LoadState';
 import { Modal } from '@/components/common/Modal';
@@ -15,7 +15,8 @@ import { formatDate } from '@/utils/format';
 import { ELIGIBILITY_LABEL, recruitmentText } from '@/utils/promo';
 import styles from './Promo.module.css';
 
-const INTRO_MAX = 40;
+/** BE 전달사항(message) 최대 길이 */
+const MESSAGE_MAX = 500;
 
 interface Props {
   eventId: string;
@@ -50,7 +51,6 @@ export function ApplyEventModal({ eventId, onClose, onBack, onDone }: Props) {
   const [regionPick, setRegionPick] = useState<string[] | null>(null);
   const pickedRegions = regionPick ?? regionOptions.map((r) => r.id);
   const [intro, setIntro] = useState('');
-  const [pledge, setPledge] = useState(false);
   const [tried, setTried] = useState(false);
   const submit = useAction(applyEvent);
 
@@ -59,9 +59,7 @@ export function ApplyEventModal({ eventId, onClose, onBack, onDone }: Props) {
   // 신청 버튼을 눌렀을 때 아직 입력하지 않은 항목을 알려 줘요
   const formBlockers = [
     !USE_MOCK && pickedRegions.length === 0 ? '참여 희망 지역을 하나 이상 골라 주세요.' : null,
-    intro.trim().length === 0 ? '한 줄 소개를 적어 주세요.' : null,
-    intro.length > INTRO_MAX ? `한 줄 소개를 ${INTRO_MAX}자 이내로 줄여 주세요.` : null,
-    !pledge ? 'QR 비치 약속에 동의해 주세요.' : null,
+    intro.length > MESSAGE_MAX ? `전달사항을 ${MESSAGE_MAX}자 이내로 줄여 주세요.` : null,
   ].filter((x): x is string => x !== null);
   const canSubmit = Boolean(selectedId) && conditionsOk && formBlockers.length === 0 && !submit.pending;
 
@@ -134,10 +132,6 @@ export function ApplyEventModal({ eventId, onClose, onBack, onDone }: Props) {
                   {checkText(c)}
                 </span>
               ))}
-              <span className={pledge ? styles.checkOk : styles.checkTodo}>
-                <Icon name={pledge ? 'check' : 'info'} size={16} />
-                QR 비치 약속 동의 (아래에서 체크)
-              </span>
             </div>
           )}
           {!USE_MOCK && regionOptions.length > 0 && (
@@ -162,15 +156,15 @@ export function ApplyEventModal({ eventId, onClose, onBack, onDone }: Props) {
           {e && e.recruitmentOpen && !e.existingApplication && !e.allPassed && <Notice tone="warning">참여 조건을 확인해 주세요. 조건이 맞아야 신청할 수 있어요.</Notice>}
 
           <Field
-            label="한 줄 소개"
-            htmlFor="ap-intro"
-            hint={`${intro.length} / ${INTRO_MAX}자 · 입장 조건과 다른 내용은 쓸 수 없어요.`}
-            message={intro.length > INTRO_MAX ? { tone: 'error', text: `${INTRO_MAX}자 이내로 줄여 주세요` } : null}
+            label="전달사항 (선택)"
+            htmlFor="ap-message"
+            hint={`${intro.length} / ${MESSAGE_MAX}자 · 운영자에게 전달할 내용이 있으면 적어 주세요.`}
+            message={intro.length > MESSAGE_MAX ? { tone: 'error', text: `${MESSAGE_MAX}자 이내로 줄여 주세요` } : null}
           >
-            <TextInput id="ap-intro" placeholder="예: 성수 산책길 끝 반려견 동반 카페예요" value={intro} aria-invalid={intro.length > INTRO_MAX} onChange={(ev2) => setIntro(ev2.target.value)} />
+            <TextArea id="ap-message" rows={3} maxLength={MESSAGE_MAX} placeholder="예: 주말에도 운영하는 매장이에요" value={intro} onChange={(ev2) => setIntro(ev2.target.value)} />
           </Field>
 
-          <Choice type="checkbox" label="분기 동안 매장 QR을 보호자가 볼 수 있는 곳에 둘게요." checked={pledge} onChange={(ev2) => setPledge(ev2.target.checked)} />
+          <Notice tone="info">참여가 승인되면 행사 기간 동안 매장 QR을 보호자가 볼 수 있는 곳에 비치해 주세요.</Notice>
           {tried && conditionsOk && formBlockers.length > 0 && (
             <Notice tone="warning" role="alert">
               {formBlockers.map((b) => (

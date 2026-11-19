@@ -135,7 +135,7 @@ export function PromoPage() {
                     const rows = apps.items.filter((x) => x.appKind === a.appKind);
                     setModal({ kind: 'application', id: a.id, ids: rows.map((x) => x.id), appKind: a.appKind, context: Object.fromEntries(rows.map((x) => [x.id, { eventId: x.eventId, storeId: x.storeId }])) });
                   }}>
-                    <span className={styles.date}>{formatDate(a.submittedAt)}</span>
+                    <span className={styles.date}>{formatDate(a.submittedAt) || a.periodText || '–'}</span>
                     <span className={styles.kind}>
                       <Tag tone="orange">{a.appKind === 'AD' ? '광고' : a.appKind === 'EVENT' ? '이벤트' : '이벤트 · 광고'}</Tag>
                     </span>

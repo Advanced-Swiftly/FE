@@ -2,7 +2,7 @@ import { JUDGMENT, type Judgment } from '@/constants/status';
 import type { AreaRule, ConditionField, ConditionState, Item, PlaceConditions, SampleDog, SizeLimit, UnrestrictableField } from '@/types';
 
 /** 화면에 보여줄 순서 */
-export const CONDITION_FIELDS: ConditionField[] = ['petAllowed', 'weightLimitKg', 'sizeLimit', 'restrictedBreeds', 'area', 'requiredItems', 'vaccinationRequired'];
+export const CONDITION_FIELDS: ConditionField[] = ['petAllowed', 'weightLimitKg', 'restrictedBreeds', 'area', 'requiredItems', 'vaccinationRequired'];
 
 export const UNRESTRICTABLE: UnrestrictableField[] = ['weightLimitKg', 'sizeLimit', 'restrictedBreeds', 'area', 'requiredItems'];
 

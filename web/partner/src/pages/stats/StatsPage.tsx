@@ -1,3 +1,4 @@
+import { USE_MOCK } from '@/api/client';
 import { useState } from 'react';
 import { getVisitStats } from '@/api/stats';
 import { BarList } from '@/components/common/BarList';
@@ -184,7 +185,7 @@ export function StatsPage() {
               )}
             </Card>
           </div>
-          <p className={page.muted}>화면의 수치는 시안용 예시입니다.</p>
+          {USE_MOCK && <p className={page.muted}>화면의 수치는 시안용 예시입니다.</p>}
         </>
       )}
 
