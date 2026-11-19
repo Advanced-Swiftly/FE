@@ -20,7 +20,7 @@ struct MapHomeView: View {
     @State private var sheetLevel: SheetLevel = .middle
     @State private var showDogMenu = false
     @State private var showPublicMenu = false
-    @AppStorage("pawfit.map.showPublicData") private var showPublicData = true
+    @AppStorage("pawfit.map.showPublicData") private var showPublicData = false   // 기본은 꺼짐
     @State private var showCriteria = false
     @State private var searchText = ""
     @State private var searchResults: [PlaceCard]?
