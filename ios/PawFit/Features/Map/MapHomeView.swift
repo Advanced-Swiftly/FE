@@ -4,6 +4,7 @@ import MapKit
 /// UI-M-001 메인 지도 (캔버스 '메인 지도 · 시트 접힘/펼침')
 /// - 지도 가운데 기준으로 업체를 불러오고, 핀은 판정과 관계없이 모두 보여 준다.
 /// - 아래 시트의 토글(입장 가능 / 준비 필요)은 목록만 거른다(10-27 결정).
+/// - '전체' 칩 옆 ▾ 칩으로 공공데이터 장소(PUBLIC:, 조건 확인 필요)를 지도 · 목록에서 켜고 끈다(11-19).
 struct MapHomeView: View {
     @Binding var focusPlaceId: String?
 
@@ -18,6 +19,8 @@ struct MapHomeView: View {
     @State private var listFilter: Verdict = .entryOK
     @State private var sheetLevel: SheetLevel = .middle
     @State private var showDogMenu = false
+    @State private var showPublicMenu = false
+    @AppStorage("pawfit.map.showPublicData") private var showPublicData = true
     @State private var showCriteria = false
     @State private var searchText = ""
     @State private var searchResults: [PlaceCard]?
@@ -32,7 +35,7 @@ struct MapHomeView: View {
         NavigationStack(path: $path) {
             GeometryReader { geo in
                 ZStack(alignment: .top) {
-                    PlaceMapLayer(places: places, myLocation: location.coordinate ?? LocationProvider.fallback,
+                    PlaceMapLayer(places: visiblePlaces, myLocation: location.coordinate ?? LocationProvider.fallback,
                                   basisDog: store.basisDogs.first, isTogether: store.basis == .together,
                                   camera: $camera,
                                   onSelect: { path.append($0.placeId) },
@@ -47,6 +50,15 @@ struct MapHomeView: View {
                         .offset(y: sheetTop(in: geo) - 60)
 
                     bottomSheet(in: geo)
+
+                    if showPublicMenu {
+                        Color.black.opacity(0.14).ignoresSafeArea().onTapGesture { showPublicMenu = false }
+                        PublicDataMenu(isOn: $showPublicData)
+                            .padding(.top, 114)
+                            .padding(.leading, 16)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .topLeading)))
+                    }
 
                     if showDogMenu {
                         Color.black.opacity(0.14).ignoresSafeArea().onTapGesture { showDogMenu = false }
@@ -70,6 +82,7 @@ struct MapHomeView: View {
             .dogRoutes()
             .sheet(isPresented: $showCriteria) { CriteriaSheet() }
             .animation(.snappy(duration: 0.25), value: showDogMenu)
+            .animation(.snappy(duration: 0.25), value: showPublicMenu)
             .task(id: store.revision) { await load() }
             .onChange(of: store.basis) { scheduleLoad() }
             .onChange(of: category) { scheduleLoad() }
@@ -105,7 +118,7 @@ struct MapHomeView: View {
                 .background(PawFitColor.background, in: RoundedRectangle(cornerRadius: 16))
                 .pawfitFloatingShadow()
 
-                Button { showDogMenu.toggle() } label: {
+                Button { showPublicMenu = false; showDogMenu.toggle() } label: {
                     HStack(spacing: 3) {
                         if store.basis == .together {
                             Image(systemName: "pawprint.fill").foregroundStyle(PawFitColor.brand)
@@ -141,11 +154,32 @@ struct MapHomeView: View {
                         .shadow(color: (on ? PawFitColor.brand : PawFitColor.textPrimary).opacity(on ? 0.22 : 0.08), radius: 5, y: 2)
                     }
                     .accessibilityAddTraits(on ? .isSelected : [])
+
+                    if value == nil { publicDataChip }
                 }
             }
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
+    }
+
+    /// '전체' 옆 ▾ 칩: 누르면 공공데이터 장소 보기 켜기/끄기 메뉴
+    private var publicDataChip: some View {
+        Button { showDogMenu = false; showPublicMenu.toggle() } label: {
+            Image(systemName: "arrowtriangle.down.fill")
+                .font(.system(size: 11))
+                .rotationEffect(.degrees(showPublicMenu ? 180 : 0))
+                .foregroundStyle(showPublicData ? PawFitColor.iconGray : PawFitColor.textTertiary)
+                .frame(width: 38, height: 34)
+                .background(PawFitColor.background, in: Capsule())
+                .shadow(color: PawFitColor.textPrimary.opacity(0.08), radius: 5, y: 2)
+        }
+        .accessibilityLabel("공공데이터 장소 보기 설정, 지금은 \(showPublicData ? "켜짐" : "꺼짐")")
+    }
+
+    /// 공공데이터 장소를 끄면 지도 핀 · 목록 · 검색 결과에서 모두 뺀다.
+    private var visiblePlaces: [PlaceCard] {
+        showPublicData ? places : places.filter { !$0.isPublicData }
     }
 
     private var myLocationButton: some View {
@@ -184,7 +218,8 @@ struct MapHomeView: View {
     }
 
     private var listed: [PlaceCard] {
-        let base = searchResults ?? places.filter { $0.verdict == listFilter }
+        let base = searchResults.map { r in showPublicData ? r : r.filter { !$0.isPublicData } }
+            ?? visiblePlaces.filter { $0.verdict == listFilter }
         return base.sorted { $0.distanceM(from: center) < $1.distanceM(from: center) }
     }
 
@@ -266,7 +301,7 @@ struct MapHomeView: View {
 
     private func filterButton(_ v: Verdict) -> some View {
         let on = listFilter == v
-        let count = places.filter { $0.verdict == v }.count
+        let count = visiblePlaces.filter { $0.verdict == v }.count
         return Button { listFilter = v } label: {
             HStack(spacing: 6) {
                 VerdictDot(verdict: v, size: 16)

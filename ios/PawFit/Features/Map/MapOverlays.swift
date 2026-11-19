@@ -141,3 +141,24 @@ struct InfoGuideSheet: View {
         .presentationDragIndicator(.visible)
     }
 }
+
+/// 메인 지도 '전체' 옆 ▾ 칩 메뉴: 공공데이터 장소 보기 켜기/끄기
+struct PublicDataMenu: View {
+    @Binding var isOn: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle(isOn: $isOn) {
+                Text("공공데이터 장소 보기").font(.pawfit(16, .semibold)).foregroundStyle(PawFitColor.textPrimary)
+            }
+            .tint(PawFitColor.brand)
+            Text("PawFit에 조건이 등록되지 않은 곳이라 모두 '조건 확인 필요'로 보여요.")
+                .font(.pawfit(13)).foregroundStyle(PawFitColor.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 14)
+        .frame(width: 276)
+        .background(PawFitColor.background, in: RoundedRectangle(cornerRadius: 20))
+        .pawfitFloatingShadow()
+    }
+}
