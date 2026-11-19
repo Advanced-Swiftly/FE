@@ -21,6 +21,12 @@ export const POLICY_ITEMS: { key: PolicyItem; label: string }[] = [
   { key: 'notice', label: '공지 문장' },
 ];
 
+/**
+ * 입장 조건 현황 · 대시보드에 보여 주는 항목.
+ * 공지 문장은 BE 에 저장되지만 판정에 쓰이지 않고 보호자 앱에도 표시되지 않아서, 현황에서는 빼고 수정 요청 화면에서만 받아요.
+ */
+export const STATUS_ITEMS = POLICY_ITEMS.filter((x) => x.key !== 'notice');
+
 export const policyItemLabel = (item: PolicyItem) => POLICY_ITEMS.find((x) => x.key === item)?.label ?? item;
 
 const UNKNOWN = { state: 'UNKNOWN' as const, text: '미확인' };
@@ -124,9 +130,6 @@ export function changedPolicyItems(before: RuleSet, after: RuleSet): PolicyItem[
   return POLICY_ITEMS.flatMap(({ key }) => (itemKey(before, key) !== itemKey(after, key) ? [key] : []));
 }
 
-/** 표 항목과 변경 사유까지 포함해 달라졌는지 */
-export const policyChanged = (before: RuleSet, after: RuleSet) =>
-  changedPolicyItems(before, after).length > 0 || (before.conditions?.changeReason?.trim() ?? '') !== (after.conditions?.changeReason?.trim() ?? '');
 
 /** 요청 제목에 쓰는 항목 이름 — 표 이름에 '조건'을 붙여야 자연스러운 것만 바꿔요 */
 const TITLE_LABEL: Partial<Record<PolicyItem, string>> = { equipment: '준비물 조건', vaccine: '예방접종 조건' };
