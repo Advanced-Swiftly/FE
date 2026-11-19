@@ -23,8 +23,8 @@ export interface Store {
 
 // TODO: Size · Area · Item 값 목록은 사용자 앱 명세서 값으로 맞춰 주세요.
 export type SizeLimit = 'SMALL' | 'MEDIUM' | 'LARGE';
-export type AreaRule = 'INDOOR_OK' | 'OUTDOOR_ONLY';
-export type Item = 'STROLLER' | 'CARRIER' | 'MANNER_BELT' | 'MUZZLE';
+export type AreaRule = 'INDOOR_OK' | 'OUTDOOR_ONLY' | 'OVER_LIMIT_OUTDOOR';
+export type Item = 'STROLLER' | 'CARRIER' | 'LEASH' | 'MUZZLE';
 
 /** 조건 값. null 은 '미확인' (단, unrestrictedFields 에 든 필드는 '제한 없음') */
 export interface PlaceConditions {
@@ -79,6 +79,14 @@ export interface ConditionChangeRequest {
   unrestrictedFields: UnrestrictableField[];
   evidenceLinks: string[];
   evidenceFiles: { name: string; size: number }[];
+  /** 적용 시작일 · 공지 문장 · 변경 사유 */
+  requestNote?: ConditionRequestNote;
+}
+
+export interface ConditionRequestNote {
+  effectiveFrom?: string;
+  notice?: string;
+  changeReason?: string;
 }
 
 /** 판정 미리보기용 테스트 반려견 */
@@ -191,6 +199,7 @@ export interface RequestHistory {
 
 /** F-WREQ-04 조건 변경 요청 상세 (요청 상세 팝업) */
 export interface ConditionRequestDetail {
+  requestNote?: ConditionRequestNote;
   sourceText?: string | null;
   requestedPolicy?: import('@/api/policy').RuleSet;
   id: string;
@@ -220,7 +229,7 @@ export type EventPhase = 'UPCOMING' | 'RECRUITING' | 'IN_PROGRESS' | 'ENDED';
 /** 참여 조건 코드 */
 export type EligibilityCode = 'REGION' | 'BUSINESS_VERIFIED' | 'QR_ACTIVE' | 'CONDITION_CHECKED_RECENT' | 'QR_PLEDGE';
 
-export type ApplyBlockedReason = 'NOT_RECRUITING' | 'OUT_OF_REGION' | 'ALREADY_APPLIED' | 'ALREADY_PARTICIPATING';
+export type ApplyBlockedReason = 'NOT_RECRUITING' | 'OUT_OF_REGION' | 'ALREADY_APPLIED' | 'ALREADY_PARTICIPATING' | 'CHECK_FAILED';
 
 export interface DateRange {
   startDate: string;

@@ -6,7 +6,7 @@ import { buildChanges, getConditions, previewVerdicts, requestConditionChange, r
 import { toApiError } from '@/api/errors';
 import { getRequestDetail } from '@/api/requests';
 import { Button, ButtonLink } from '@/components/common/Button';
-import { Choice, InputRow, Select, TextInput } from '@/components/common/Field';
+import { Choice, Field, InputRow, Select, TextInput } from '@/components/common/Field';
 import { Icon } from '@/components/common/Icon';
 import { JudgmentChip } from '@/components/common/JudgmentChip';
 import { LoadState } from '@/components/common/LoadState';
@@ -156,6 +156,9 @@ function EditForm({ original, request, onRestart }: { original: StoreConditions;
   const [files, setFiles] = useState<File[]>([]);
   const [links, setLinks] = useState<string[]>([]);
   const [linkInput, setLinkInput] = useState('');
+  const [effectiveFrom, setEffectiveFrom] = useState(request?.requestNote?.effectiveFrom ?? '');
+  const [notice, setNotice] = useState(request?.requestNote?.notice ?? '');
+  const [changeReason, setChangeReason] = useState(request?.requestNote?.changeReason ?? '');
   const [preview, setPreview] = useState<VerdictPreview[] | null>(null);
   const [previewState, setPreviewState] = useState<{ loading: boolean; error: string | null }>({ loading: true, error: null });
   const [previewTick, setPreviewTick] = useState(0);
@@ -228,7 +231,7 @@ function EditForm({ original, request, onRestart }: { original: StoreConditions;
     // 보완인데 최신 버전을 모르면 보내지 않아요 (화면에서 미리 막혀요)
     if (baseVersion === null) return;
     const res = await send.run(
-      { storeId: original.storeId, baseVersion, changes, unrestrictedFields, evidenceLinks: links, evidenceFiles: files.map((f) => ({ name: f.name, size: f.size })) },
+      { storeId: original.storeId, baseVersion, changes, unrestrictedFields, evidenceLinks: links, evidenceFiles: files.map((f) => ({ name: f.name, size: f.size })), requestNote: { effectiveFrom: effectiveFrom || undefined, notice: notice.trim() || undefined, changeReason: changeReason.trim() || undefined } },
       files,
     );
     if (!res.ok) return;
@@ -381,15 +384,25 @@ function EditForm({ original, request, onRestart }: { original: StoreConditions;
         )}
       </>,
     ),
-    area: limitChoice(
-      'area',
-      '구역 정하기',
-      'INDOOR_OK',
+    // '제한 없음'과 '실내 · 야외 모두'는 같은 뜻이라 하나의 선택지로 보여 줘요
+    area: (
       <div className={styles.choices}>
-        {(Object.keys(AREA_LABEL) as AreaRule[]).map((a) => (
-          <Choice key={a} type="radio" name="area-value" boxed label={AREA_LABEL[a]} checked={c.area === a} onChange={() => update('area', a)} />
-        ))}
-      </div>,
+        {(Object.keys(AREA_LABEL) as AreaRule[]).map((a) => {
+          const allAreas = a === 'INDOOR_OK';
+          const keepUnrestricted = allAreas && original.unrestrictedFields.includes('area');
+          return (
+            <Choice
+              key={a}
+              type="radio"
+              name="area-value"
+              boxed
+              label={AREA_LABEL[a]}
+              checked={c.area === a || (allAreas && fieldState(draft, 'area') === 'UNRESTRICTED')}
+              onChange={() => (keepUnrestricted ? update('area', null, true) : update('area', a))}
+            />
+          );
+        })}
+      </div>
     ),
     requiredItems: limitChoice(
       'requiredItems',
@@ -451,6 +464,10 @@ function EditForm({ original, request, onRestart }: { original: StoreConditions;
             ))}
           </ul>
         )}
+
+        <Field label="적용 시작일" htmlFor="c-effective">
+          <TextInput id="c-effective" type="date" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} />
+        </Field>
 
         <div className={styles.evidence}>
           <span className={styles.label}>근거 자료 (1개 이상)</span>
@@ -525,6 +542,13 @@ function EditForm({ original, request, onRestart }: { original: StoreConditions;
           {/* TODO: 근거 파일 형식 · 용량 규칙 (명세 WR-7) */}
           <span className={page.muted}>공지 캡처나 링크가 있으면 더 빨리 확인할 수 있어요.</span>
         </div>
+
+        <Field label="공지 문장" htmlFor="c-notice" hint={`${notice.length}/500`}>
+          <TextInput id="c-notice" maxLength={500} placeholder="예: 실내 10kg 이하, 초과 시 야외 테라스 이용" value={notice} onChange={(e) => setNotice(e.target.value)} />
+        </Field>
+        <Field label="변경 사유" htmlFor="c-reason" hint={`${changeReason.length}/500`}>
+          <TextInput id="c-reason" maxLength={500} placeholder="예: 테라스 좌석 운영 시작" value={changeReason} onChange={(e) => setChangeReason(e.target.value)} />
+        </Field>
 
         <div className={styles.preview}>
           <span className={styles.previewLabel}>

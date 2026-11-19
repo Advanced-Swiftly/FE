@@ -126,6 +126,7 @@ export async function requestConditionChange(req: ConditionChangeRequest, files:
       baseVersion: req.baseVersion,
       latestConditionsVersion: state.conditionsVersion,
       baseChanged: false,
+      requestNote: req.requestNote,
       changes: fields.map((field) => ({
         field,
         currentValue: state.conditions[field] ?? null,
@@ -168,6 +169,7 @@ export async function resubmitConditionRequest(requestId: string, req: Condition
       latestConditionsVersion: state.conditionsVersion,
       baseChanged: false,
       canResubmit: false,
+      requestNote: req.requestNote,
       changes: fields.map((field) => ({
         field,
         currentValue: state.conditions[field] ?? null,

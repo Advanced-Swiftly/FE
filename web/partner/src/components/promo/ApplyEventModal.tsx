@@ -51,14 +51,22 @@ export function ApplyEventModal({ eventId, onClose, onBack, onDone }: Props) {
   const pickedRegions = regionPick ?? regionOptions.map((r) => r.id);
   const [intro, setIntro] = useState('');
   const [pledge, setPledge] = useState(false);
+  const [tried, setTried] = useState(false);
   const submit = useAction(applyEvent);
 
   const e = elig.data;
-  const introOk = intro.trim().length >= 1 && intro.length <= INTRO_MAX;
-  const allowed = e?.canApply === true && (USE_MOCK || pickedRegions.length > 0);
-  const canSubmit = Boolean(selectedId) && allowed && introOk && pledge && !submit.pending;
+  const conditionsOk = e?.canApply === true;
+  // 신청 버튼을 눌렀을 때 아직 입력하지 않은 항목을 알려 줘요
+  const formBlockers = [
+    !USE_MOCK && pickedRegions.length === 0 ? '참여 희망 지역을 하나 이상 골라 주세요.' : null,
+    intro.trim().length === 0 ? '한 줄 소개를 적어 주세요.' : null,
+    intro.length > INTRO_MAX ? `한 줄 소개를 ${INTRO_MAX}자 이내로 줄여 주세요.` : null,
+    !pledge ? 'QR 비치 약속에 동의해 주세요.' : null,
+  ].filter((x): x is string => x !== null);
+  const canSubmit = Boolean(selectedId) && conditionsOk && formBlockers.length === 0 && !submit.pending;
 
   const onSubmit = async () => {
+    setTried(true);
     if (!canSubmit || !selectedId) return;
     const res = await submit.run({ eventId, storeId: selectedId, intro: intro.trim(), qrPledgeAgreed: true, regionIds: pickedRegions });
     if (res.ok) onDone(res.data.id, selectedId);
@@ -79,7 +87,7 @@ export function ApplyEventModal({ eventId, onClose, onBack, onDone }: Props) {
             <Button variant="secondary" onClick={onBack}>
               이전
             </Button>
-            <Button onClick={onSubmit} disabled={!canSubmit}>
+            <Button onClick={onSubmit} disabled={!conditionsOk || submit.pending}>
               {submit.pending ? '보내는 중…' : '신청하기'}
             </Button>
           </div>
@@ -163,6 +171,15 @@ export function ApplyEventModal({ eventId, onClose, onBack, onDone }: Props) {
           </Field>
 
           <Choice type="checkbox" label="분기 동안 매장 QR을 보호자가 볼 수 있는 곳에 둘게요." checked={pledge} onChange={(ev2) => setPledge(ev2.target.checked)} />
+          {tried && conditionsOk && formBlockers.length > 0 && (
+            <Notice tone="warning" role="alert">
+              {formBlockers.map((b) => (
+                <span key={b} style={{ display: 'block' }}>
+                  {b}
+                </span>
+              ))}
+            </Notice>
+          )}
           {submit.error && (
             <Notice tone="danger" role="alert">
               {submit.error}

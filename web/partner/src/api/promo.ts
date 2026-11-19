@@ -295,10 +295,9 @@ export async function getEligibility(eventId: string, storeId: string): Promise<
     if (!ev || !store) throw mockError('NOT_FOUND');
     const cond = MOCK_CONDITIONS[storeId];
     const baseDate = MOCK_EVENT_NOW.slice(0, 10);
-    const checked = cond?.conditionCheckedAt ?? null;
-    const days = checked ? Math.round((new Date(baseDate).getTime() - new Date(checked).getTime()) / 86_400_000) : null;
-    // 시안: 서울숲점은 30일 안에 확인한 조건으로 봐요 (시각을 12월로 옮겨 둔 만큼 보정)
-    const daysSince = days === null ? null : storeId === 'store-sf-0087' ? 12 : days;
+    // 시안 시각을 12월 말로 옮겨 둔 만큼, 입장 조건 확인일도 그 시각의 12일 전으로 맞춰요
+    const checked = cond?.conditionCheckedAt ? new Date(Date.parse(`${baseDate}T00:00:00Z`) - 12 * 86_400_000).toISOString().slice(0, 10) : null;
+    const daysSince = checked ? 12 : null;
     const checks: EligibilityCheck[] = [
       { code: 'REGION', passed: Boolean(store.area && ev.regions.includes(store.area)), detail: null },
       { code: 'BUSINESS_VERIFIED', passed: store.verification === 'APPROVED', detail: null },
