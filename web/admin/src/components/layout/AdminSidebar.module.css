@@ -1,0 +1,94 @@
+.sidebar {
+  flex: 1 1 var(--sidebar-width);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-6) var(--space-4);
+  background: var(--color-admin-nav);
+  color: var(--color-admin-nav-text);
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 var(--space-2) var(--space-6);
+}
+
+.logoText {
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--color-text-inverse);
+}
+
+.badgeLabel {
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--color-admin-nav-active);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+}
+
+.link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--control-height);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-base);
+  color: var(--color-admin-nav-text);
+}
+
+.link:hover {
+  background: var(--color-admin-nav-active);
+  color: var(--color-text-inverse);
+}
+
+.active,
+.active:hover {
+  background: var(--color-admin-nav-active);
+  color: var(--color-text-inverse);
+  font-weight: 600;
+}
+
+.label {
+  flex: 1;
+}
+
+.count {
+  min-width: 24px;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-admin-badge);
+  color: var(--color-admin-nav);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-align: center;
+}
+
+.spacer {
+  flex-grow: 1;
+  min-height: var(--space-6);
+}
+
+.user {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-3);
+  border-top: 1px solid var(--color-admin-nav-active);
+  font-size: var(--font-size-sm);
+}
+
+.user strong {
+  color: var(--color-text-inverse);
+}
+
+button.link {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}

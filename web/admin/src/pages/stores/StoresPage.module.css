@@ -1,0 +1,151 @@
+.mixBar {
+  display: flex;
+  height: 16px;
+  border-radius: 4px;
+  overflow: hidden;
+  gap: 2px;
+}
+
+.mix_ONLINE { background: #6b84dc; }
+.mix_DIRECT { background: var(--color-admin-nav); }
+.mix_UNKNOWN { background: var(--color-border-strong); }
+
+.mixLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4) var(--space-8);
+}
+
+.mixLegend > div {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.mixLegend > div > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--font-size-md);
+}
+
+.mixLegend span:not(.dot) {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.dot {
+  width: 12px;
+  height: 12px;
+  margin-top: 4px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-6);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.h2 {
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.search {
+  width: 200px;
+  min-height: 40px;
+}
+
+.sort {
+  width: 170px;
+  min-height: 40px;
+}
+
+.table {
+  min-width: 900px;
+}
+
+.name {
+  font-weight: 600;
+}
+
+.staleRow {
+  background: var(--color-warning-bg);
+}
+
+.stale {
+  font-weight: 600;
+  color: #854d0e;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.action {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 14px var(--space-6);
+  border-top: 1px solid var(--color-border);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.twoCol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+.twoCol > * {
+  flex: 1 1 200px;
+}
+
+.fieldset {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+}
+
+.fieldset legend {
+  padding: 0 6px;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+}
+
+.more {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-4);
+}
+
+.channels {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font: inherit;
+}

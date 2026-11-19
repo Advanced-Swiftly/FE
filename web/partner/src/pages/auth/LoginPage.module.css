@@ -1,0 +1,138 @@
+.page {
+  display: flex;
+  flex-wrap: wrap;
+  min-height: 100vh;
+}
+
+.intro {
+  flex: 1 1 420px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-10);
+  padding: 56px 56px 48px;
+  background: var(--color-primary);
+  color: var(--color-text-inverse);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+}
+
+.headline {
+  max-width: 480px;
+  font-size: 36px;
+  line-height: 1.35;
+  letter-spacing: -0.6px;
+}
+
+.points {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 460px;
+}
+
+.points li {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.grow {
+  flex-grow: 1;
+}
+
+.pilot {
+  font-size: var(--font-size-md);
+  color: #dce3f7;
+}
+
+.main {
+  flex: 1 1 480px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 56px var(--space-6);
+}
+
+.form {
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.titleBox {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.title {
+  font-size: var(--font-size-2xl);
+  font-weight: 700;
+}
+
+.muted {
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+  color: var(--color-text-muted);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--font-size-md);
+}
+
+.error {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--color-danger);
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.divider span {
+  flex: 1;
+  height: 1px;
+  background: var(--color-border);
+}
+
+@media (max-width: 720px) {
+  .intro {
+    padding: var(--space-8) var(--space-6);
+    gap: var(--space-6);
+  }
+
+  .headline {
+    font-size: 28px;
+  }
+}
+
+.textButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-primary);
+  cursor: pointer;
+}

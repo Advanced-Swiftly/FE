@@ -1,0 +1,6 @@
+/* 요약 카드 여러 개를 나란히 놓는 칸 */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: var(--space-4);
+}

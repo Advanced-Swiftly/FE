@@ -1,0 +1,111 @@
+import SwiftUI
+
+/// 로그인 후 메인: 아래 탭 3개 (챗봇 · 지도 · 마이). 처음엔 지도.
+/// 탭을 바꿔도 각 화면 상태가 유지되도록 세 화면을 모두 만들어 두고 보이는 것만 바꾼다.
+struct MainTabView: View {
+    enum Tab: Hashable { case chat, map, my }
+
+    @Environment(AppSession.self) private var session
+    @Environment(\.appEnvironment) private var env
+    @State private var store: AppStore?
+    @State private var tab: Tab = .map
+    @State private var showDogRegistration = false
+
+    var body: some View {
+        Group {
+            if let store {
+                ZStack(alignment: .bottom) {
+                    // 챗봇 · 마이는 탭바 자리만큼 높이를 줄인다. safeAreaInset은 NavigationStack 안 화면까지
+                    // 전달되지 않아서, 화면 아래 입력창 · 버튼(safeAreaInset)이 탭바에 가려졌다.
+                    // 지도는 줄이지 않는다: 업체 상세를 열고 닫을 때(탭바 숨김 · 표시) 지도 높이가 바뀌어
+                    // 시트가 들썩이므로, 지도 시트가 탭바 높이를 직접 뺀다.
+                    let tabInset = store.tabBarHiders == 0 ? PawFitTabBar.height : 0
+                    ZStack {
+                        NavigationStack { ChatView(openMapPlace: openPlaceFromChat) }
+                            .padding(.bottom, tabInset)
+                            .opacity(tab == .chat ? 1 : 0).allowsHitTesting(tab == .chat)
+                        MapHomeView(focusPlaceId: $focusPlaceId)   // 지도는 자체 NavigationStack(경로 제어)
+                            .ignoresSafeArea(.keyboard, edges: .bottom)
+                            .opacity(tab == .map ? 1 : 0).allowsHitTesting(tab == .map)
+                        NavigationStack { MyView(selectTab: { tab = $0 }) }
+                            .padding(.bottom, tabInset)
+                            .opacity(tab == .my ? 1 : 0).allowsHitTesting(tab == .my)
+                    }
+                    if store.tabBarHiders == 0 {
+                        PawFitTabBar(selection: $tab)
+                            .ignoresSafeArea(.keyboard, edges: .bottom)
+                            .transition(.move(edge: .bottom))
+                    }
+                }
+                .environment(store)
+                .onChange(of: tab) { UIApplication.shared.endEditing() }   // 탭을 바꾸면 키보드를 내린다
+                .fullScreenCover(isPresented: $showDogRegistration) {
+                    DogRegistrationFlow(onFinish: { showDogRegistration = false })
+                        .environment(store)
+                }
+                .task {
+                    await store.reloadDogs()
+                    if session.pendingDogRegistration {
+                        session.pendingDogRegistration = false
+                        showDogRegistration = true
+                    }
+                }
+            } else {
+                Color.clear.onAppear { store = AppStore(api: env.api) }
+            }
+        }
+    }
+
+    @State private var focusPlaceId: String?
+
+    private func openPlaceFromChat(_ placeId: String) {
+        UIApplication.shared.endEditing()   // 챗봇 키보드가 지도 · 업체 상세 위에 남지 않게
+        focusPlaceId = placeId
+        tab = .map
+    }
+}
+
+/// 캔버스 탭바: 높이 83(홈 표시줄 포함), 아이콘만, 선택 = 채운 브랜드색
+struct PawFitTabBar: View {
+    static let height: CGFloat = 49
+    @Binding var selection: MainTabView.Tab
+
+    var body: some View {
+        HStack(spacing: 52) {
+            item(.chat, on: "bubble.left.fill", off: "bubble.left", label: "챗봇")
+            item(.map, on: "map.fill", off: "map", label: "지도")
+            item(.my, on: "person.fill", off: "person", label: "마이")
+        }
+        .padding(.top, 10)
+        .frame(maxWidth: .infinity, alignment: .top)
+        .frame(height: Self.height, alignment: .top)
+        .background(PawFitColor.background.ignoresSafeArea(edges: .bottom))
+        .overlay(alignment: .top) { Rectangle().fill(PawFitColor.separator.opacity(0.6)).frame(height: 0.5) }
+    }
+
+    private func item(_ tab: MainTabView.Tab, on: String, off: String, label: String) -> some View {
+        let selected = selection == tab
+        return Button { selection = tab } label: {
+            Image(systemName: selected ? on : off)
+                .font(.system(size: 24, weight: .regular))
+                .foregroundStyle(selected ? PawFitColor.brand : PawFitColor.textTertiary)
+                .frame(width: 56, height: 44)
+        }
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// 이 화면이 보이는 동안 아래 탭바를 숨긴다 (업체 상세 · 반려견 화면 등)
+struct HidesTabBarModifier: ViewModifier {
+    @Environment(AppStore.self) private var store
+    func body(content: Content) -> some View {
+        content
+            .onAppear { store.tabBarHiders += 1 }
+            .onDisappear { store.tabBarHiders = max(0, store.tabBarHiders - 1) }
+    }
+}
+
+extension View {
+    func hidesTabBar() -> some View { modifier(HidesTabBarModifier()) }
+}

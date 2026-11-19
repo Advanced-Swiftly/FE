@@ -1,0 +1,66 @@
+name: iOS 빌드 · 테스트
+
+on:
+  push:
+    paths: ['ios/**', '.github/workflows/ios.yml']
+  pull_request:
+    paths: ['ios/**', '.github/workflows/ios.yml']
+  workflow_dispatch:
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: 사용자 앱 빌드 · 테스트
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: ios
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: XcodeGen 설치 · 프로젝트 만들기
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: 시뮬레이터 고르기
+        id: sim
+        run: |
+          xcodebuild -version
+          UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          best = None
+          for runtime, devices in json.load(sys.stdin)["devices"].items():
+              if "iOS" not in runtime:
+                  continue
+              version = tuple(int(x) for x in runtime.split("iOS-")[-1].split("-"))
+              for d in devices:
+                  if d["name"].startswith("iPhone"):
+                      key = (version, d["name"])
+                      if best is None or key > best[0]:
+                          best = (key, d["udid"])
+          print(best[1] if best else "")
+          ')
+          echo "시뮬레이터: $UDID"
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+
+      - name: 빌드 · 테스트
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project PawFit.xcodeproj -scheme PawFit \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee build.log | grep -E "error:|\.swift:[0-9]+:[0-9]+: warning:|Executed|\*\* (BUILD|TEST)" || true
+          grep -q "\*\* TEST SUCCEEDED \*\*" build.log
+
+      - name: 실패하면 로그 올리기
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: ios/build.log

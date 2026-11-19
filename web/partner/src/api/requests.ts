@@ -1,0 +1,265 @@
+import { MOCK_CONDITIONS } from '@/mocks/conditions';
+import { MOCK_REQUEST_DETAILS } from '@/mocks/requestDetails';
+import { MOCK_AVG_PROCESSING_DAYS, MOCK_REQUESTS } from '@/mocks/requests';
+import type { Attachment, ConditionField, ConditionRequestDetail, PartnerRequest, RequestChange, RequestHistory, RequestPage, RequestStatus } from '@/types';
+import { apiClient, mockResponse, USE_MOCK } from './client';
+import { mockError } from './errors';
+import { toId, toStoreId, type RawId } from './ids';
+
+// 명세 F-WREQ-01 · 04 · 05 (제출본 6.1.3절). 서버 응답(DTO) → 화면 타입 변환은 이 파일에서만 해요.
+
+const enc = encodeURIComponent;
+
+// ─── F-WREQ-01 요청 처리 현황 ────────────────────────
+
+export interface RequestItemDto {
+  type: 'CONDITION' | 'EVENT_AD';
+  /** 목업 전용 — 신청 종류 (서버 목록은 API 경로로 알아요) */
+  appKind?: 'EVENT' | 'AD';
+  /** 종류에 따라 하나만 있어요 (문자 · 숫자) */
+  requestId?: RawId;
+  applicationId?: RawId;
+  status: RequestStatus;
+  group: 'IN_PROGRESS' | 'DONE';
+  summaryText: string | null;
+  submittedAt: string;
+}
+interface RequestListDto {
+  summary: { inProgress: number; needsAction: number; done: number; avgProcessingDays: number | null };
+  items: RequestItemDto[];
+  nextCursor: string | null;
+}
+
+export type RequestTypeFilter = 'ALL' | 'CONDITION' | 'EVENT_AD';
+export type RequestStatusFilter = 'ALL' | 'IN_PROGRESS' | 'DONE';
+
+export function toRequestItem(d: RequestItemDto, storeId: string): PartnerRequest {
+  return {
+    id: toId(d.type === 'CONDITION' ? d.requestId : d.applicationId) ?? '',
+    storeId,
+    kind: d.type,
+    appKind: d.appKind,
+    status: d.status,
+    group: d.group,
+    summaryText: d.summaryText,
+    submittedAt: d.submittedAt,
+  };
+}
+
+/**
+ * BE 상태 → 화면 상태. 입장 조건 요청 · 사업자 인증의 보완 요청은 NEEDS_SUPPLEMENT,
+ * 이벤트 · 광고 신청은 NEEDS_INFO 라서 화면에서는 하나(NEEDS_INFO)로 다뤄요.
+ */
+export function toRequestStatus(s: string | null | undefined): RequestStatus | null {
+  if (!s) return null;
+  return (s === 'NEEDS_SUPPLEMENT' ? 'NEEDS_INFO' : s) as RequestStatus;
+}
+const AD_TYPE_LABEL: Record<string, string> = { RECOMMENDED: '지도 추천 노출', BANNER: '배너' };
+
+const OPERATOR_KIND_LABEL: Record<string, string> = { OPERATOR_DIRECT: '운영자 직접 변경', RECHECK: '운영자 재확인 요청', AI_CANDIDATE: '운영자 검토 후보' };
+
+/** 업체가 보낸 요청(CONDITION_REQUEST)이 아니면 이름을 돌려줘요. 이런 건은 서버 상세 조회가 본인 요청만 허용해서 열 수 없어요 */
+const operatorLabel = (kind?: string | null) => (!kind || kind === 'CONDITION_REQUEST' ? null : (OPERATOR_KIND_LABEL[kind] ?? '운영자 처리 건'));
+
+/** 정책 원문을 목록용 한 줄로 줄여요 (빈 값이면 null) */
+export function sourcePreview(text?: string | null, max = 40) {
+  const line = (text ?? '').replace(/\s+/g, ' ').trim();
+  if (!line) return null;
+  return line.length > max ? `${line.slice(0, max)}…` : line;
+}
+
+type ListItemDto = { sourceText?: string | null; requestId?: RawId; applicationId?: RawId; status?: string; kind?: string; eventId?: RawId; adType?: string; submittedAt?: string | null; createdAt?: string | null };
+
+/**
+ * 요청 처리 현황 — 세 목록 API 를 각각 불러요 (현재 매장 기준)
+ * - 입장 조건 요청 목록: GET /business/stores/{storeId}/condition-requests
+ * - 이벤트 신청 목록: GET /business/event-applications?storeId
+ * - 광고 신청 목록: GET /business/ad-applications?storeId
+ * 세 목록을 합친 전체 건수 · 정렬 · 다음 페이지 기준이 없어 첫 페이지만, 받은 순서대로 보여 주고 요약은 null 이에요.
+ * 진행 중 · 완료 필터는 각 목록의 첫 페이지 안에서만 걸러요.
+ */
+async function getSplitRequestPage(storeId: string, type: RequestTypeFilter, status: RequestStatusFilter, cursor: string | null, limit?: number): Promise<RequestPage> {
+  if (cursor) return { summary: null, items: [], nextCursor: null };
+  const want = (k: 'CONDITION' | 'EVENT_AD') => type === 'ALL' || type === k;
+  const [cond, events, ads] = await Promise.all([
+    want('CONDITION') ? apiClient.get<{ items?: ListItemDto[] | null }>(`/business/stores/${enc(storeId)}/condition-requests`).then((r) => r.data?.items ?? []) : Promise.resolve([]),
+    want('EVENT_AD') ? apiClient.get<{ items?: ListItemDto[] | null }>('/business/event-applications', { params: { storeId } }).then((r) => r.data?.items ?? []) : Promise.resolve([]),
+    want('EVENT_AD') ? apiClient.get<{ items?: ListItemDto[] | null }>('/business/ad-applications', { params: { storeId } }).then((r) => r.data?.items ?? []) : Promise.resolve([]),
+  ]);
+  const IN_PROGRESS: RequestStatus[] = ['RECEIVED', 'IN_REVIEW', 'NEEDS_INFO'];
+  const row = (d: ListItemDto, kind: 'CONDITION' | 'EVENT_AD', appKind?: 'EVENT' | 'AD'): PartnerRequest | null => {
+    const id = toId(kind === 'CONDITION' ? d.requestId : d.applicationId);
+    const st = toRequestStatus(d.status);
+    if (!id || !st) return null;
+    const byOperator = kind === 'CONDITION' ? operatorLabel(d.kind) : null;
+    const summaryText = appKind === 'EVENT' ? `댕댕로드 참여 신청${toId(d.eventId) ? ` · 이벤트 ${toId(d.eventId)}` : ''}` : appKind === 'AD' ? `광고 신청${d.adType ? ` · ${AD_TYPE_LABEL[d.adType] ?? d.adType}` : ''}` : (byOperator ?? '입장 조건 변경 요청');
+    // 목록 응답에 접수 시각이 없으면 빈 값 (화면은 '–')
+    return { id, storeId, kind, appKind, status: st, group: IN_PROGRESS.includes(st) ? 'IN_PROGRESS' : 'DONE', summaryText, submittedAt: d.submittedAt ?? d.createdAt ?? '', sourcePreview: kind === 'CONDITION' ? sourcePreview(d.sourceText) : null, operatorLabel: byOperator, eventId: appKind === 'EVENT' ? toId(d.eventId) : null };
+  };
+  const all = [
+    ...cond.map((d) => row(d, 'CONDITION')),
+    ...events.map((d) => row(d, 'EVENT_AD', 'EVENT')),
+    ...ads.map((d) => row(d, 'EVENT_AD', 'AD')),
+  ].filter((x): x is PartnerRequest => x !== null);
+  const items = all.filter(x=>status==='ALL'||x.group===status);
+  const summary={inProgress:all.filter(x=>x.group==='IN_PROGRESS').length,needsAction:all.filter(x=>x.status==='NEEDS_INFO'&&!x.operatorLabel).length,done:all.filter(x=>x.group==='DONE').length,avgProcessingDays:null};
+  // 대시보드처럼 개수를 정해 부르면 그만큼만 (세 목록을 합친 정렬 기준이 없어 받은 순서 그대로)
+  return { summary, items: await withEventTitles(storeId, limit ? items.slice(0, limit) : items), nextCursor: null };
+}
+
+/** 이벤트 신청 줄에 이벤트 이름을 붙여요 (신청의 eventId · 매장 ID 기준). 못 찾으면 이벤트 번호를 그대로 둬요 */
+async function withEventTitles(storeId: string, items: PartnerRequest[]) {
+  const ids = [...new Set(items.flatMap((x) => (x.appKind === 'EVENT' && x.eventId ? [x.eventId] : [])))];
+  const entries = await Promise.all(
+    ids.map(async (id) => {
+      const title = await apiClient
+        .get<{ title?: string | null }>(`/business/events/${enc(id)}`, { params: { placeId: storeId } })
+        .then((r) => r.data?.title ?? null)
+        .catch(() => null);
+      return [id, title] as const;
+    }),
+  );
+  const titles = new Map(entries);
+  return items.map((x) => {
+    const title = x.eventId ? titles.get(x.eventId) : null;
+    return title ? { ...x, summaryText: `${title} 참여 신청` } : x;
+  });
+}
+
+/** 진행 중인 입장 조건 변경 요청 (접수 · 검토 중 · 보완 요청) — 새로고침해도 서버 값으로 다시 보여 줘요 */
+export async function getPendingConditionRequests(storeId: string): Promise<PartnerRequest[]> {
+  const lists = await Promise.all(
+    ['RECEIVED', 'IN_REVIEW', 'NEEDS_SUPPLEMENT'].map((status) =>
+      apiClient.get<{ items?: ListItemDto[] | null }>(`/business/stores/${enc(storeId)}/condition-requests`, { params: { status } }).then((r) => r.data?.items ?? []),
+    ),
+  );
+  return lists
+    .flat()
+    .filter((d) => !operatorLabel(d.kind))
+    .flatMap((d): PartnerRequest[] => {
+      const id = toId(d.requestId);
+      const status = toRequestStatus(d.status);
+      if (!id || !status) return [];
+      return [{ id, storeId, kind: 'CONDITION', status, group: 'IN_PROGRESS', summaryText: '입장 조건 변경 요청', submittedAt: d.submittedAt ?? d.createdAt ?? '', sourcePreview: sourcePreview(d.sourceText) }];
+    })
+    .sort((a, b) => Number(b.id) - Number(a.id));
+}
+
+/** F-WREQ-01 한 페이지. 대시보드 최근 요청은 limit=3 (명세) */
+export async function getRequestPage(storeId: string, opts: { type?: RequestTypeFilter; status?: RequestStatusFilter; cursor?: string | null; limit?: number } = {}): Promise<RequestPage> {
+  const type = opts.type ?? 'ALL';
+  const status = opts.status ?? 'ALL';
+  const limit = opts.limit ?? 20;
+  let dto: RequestListDto;
+  if (USE_MOCK) {
+    const mine = MOCK_REQUESTS.filter((r) => r.placeId === storeId);
+    const rows = mine.filter((r) => (type === 'ALL' || r.type === type) && (status === 'ALL' || r.group === status));
+    const start = opts.cursor ? Number(opts.cursor) : 0;
+    const done = mine.filter((r) => r.group === 'DONE').length;
+    dto = await mockResponse({
+      summary: {
+        inProgress: mine.filter((r) => r.group === 'IN_PROGRESS').length,
+        needsAction: mine.filter((r) => r.status === 'NEEDS_INFO').length,
+        done,
+        avgProcessingDays: done ? MOCK_AVG_PROCESSING_DAYS : null,
+      },
+      items: rows.slice(start, start + limit).map(({ placeId: _p, ...item }) => item),
+      nextCursor: start + limit < rows.length ? String(start + limit) : null,
+    });
+  } else {
+    return getSplitRequestPage(storeId, type, status, opts.cursor ?? null, opts.limit);
+  }
+  return { summary: dto.summary, items: dto.items.map((d) => toRequestItem(d, storeId)), nextCursor: dto.nextCursor };
+}
+
+// ─── F-WREQ-04 요청 상세 ─────────────────────────────
+
+export interface ConditionRequestDetailDto {
+  /** 목업 요청의 적용 시작일 · 공지 문장 · 변경 사유 */
+  requestNote?: import('@/types').ConditionRequestNote;
+  /** 문자('REQ-0131') · 숫자(1301) 모두 받아요 */
+  requestId: RawId;
+  /** 매장 ID — 이전 명세 placeId · API 문서 storeId */
+  placeId?: RawId;
+  storeId?: RawId;
+  /** BE 는 NEEDS_SUPPLEMENT 로 보내요 */
+  status: RequestStatus | 'NEEDS_SUPPLEMENT';
+  submittedAt?: string | null;
+  lastSubmittedAt?: string | null;
+  baseVersion?: number | null;
+  latestConditionsVersion?: number | null;
+  baseChanged?: boolean;
+  changes?: (Omit<RequestChange, 'field'> & { field: string })[] | null;
+  evidences?: { kind: 'LINK' | 'FILE'; url: string; fileName?: string | null }[] | null;
+  reason?: string | null;
+  /** 백엔드 API 문서의 보완 · 반려 사유 */
+  reviewComment?: string | null;
+  sourceText?: string | null;
+  evidenceUrls?: string[];
+  requestedPolicy?: import('./policy').RuleSet;
+  history?: RequestHistory[] | null;
+  canCancel?: boolean;
+  canResubmit?: boolean;
+}
+
+/** LINK · FILE 근거 → 화면 첨부 (링크는 주소, 파일은 파일명으로 보여 주고 둘 다 url 로 열어요) */
+function toAttachment(e: NonNullable<ConditionRequestDetailDto['evidences']>[number]): Attachment {
+  if (e.kind === 'FILE') return { kind: 'file', name: e.fileName || '첨부 파일', href: e.url };
+  return { kind: 'link', name: e.url.replace(/^https?:\/\//, ''), href: e.url };
+}
+
+export function toRequestDetail(d: ConditionRequestDetailDto): ConditionRequestDetail {
+  const status = toRequestStatus(d.status) ?? 'RECEIVED';
+  return {
+    id: toId(d.requestId) ?? '',
+    // 실제 BE 상세({ requestId, status, reviewComment })에는 매장 ID 가 없어 빈 값이에요 (화면은 매장 확인을 건너뛰고, 소유 확인은 서버가 해요)
+    storeId: toStoreId(d) ?? '',
+    status,
+    // 상세 응답 예시에 없는 값은 빈 값으로 받아요 (화면이 멈추지 않게)
+    submittedAt: d.submittedAt ?? '',
+    lastSubmittedAt: d.lastSubmittedAt ?? d.submittedAt ?? '',
+    // 버전이 없으면 0 으로 채우지 않아요 — '조건이 바뀜'과 '비교할 수 없음'을 구분해요
+    baseVersion: typeof d.baseVersion === 'number' ? d.baseVersion : null,
+    latestConditionsVersion: typeof d.latestConditionsVersion === 'number' ? d.latestConditionsVersion : null,
+    baseChanged: d.baseChanged === true,
+    // 상세 응답 예시는 { requestId, status, reviewComment } 뿐이라 없는 목록은 빈 값, 가능 여부는 열지 않는 쪽으로 받아요
+    changes: (d.changes ?? []).map((c) => ({ ...c, field: c.field as ConditionField })),
+    evidences: (d.evidences ?? d.evidenceUrls?.map(url => ({kind: 'FILE' as const, url} as const)) ?? []).map(toAttachment),
+    sourceText: d.sourceText, requestedPolicy: d.requestedPolicy, requestNote: d.requestNote,
+    reason: d.reason ?? d.reviewComment ?? null,
+    history: d.history ?? [],
+    // 가능 여부가 응답에 없으면 BE 규칙대로 정해요 (ConditionRequest.canCancel: 접수 · 보완 요청 / canResubmit: 보완 요청)
+    canCancel: typeof d.canCancel === 'boolean' ? d.canCancel : status === 'RECEIVED' || status === 'NEEDS_INFO',
+    canResubmit: typeof d.canResubmit === 'boolean' ? d.canResubmit : status === 'NEEDS_INFO',
+  };
+}
+
+/** F-WREQ-04 입장 조건 변경 요청 상세 */
+export async function getRequestDetail(id: string): Promise<ConditionRequestDetail> {
+  if (USE_MOCK) {
+    const detail = MOCK_REQUEST_DETAILS[id];
+    if (!detail) throw mockError('NOT_FOUND');
+    return toRequestDetail(await mockResponse(detail));
+  }
+  const { data } = await apiClient.get<ConditionRequestDetailDto>(`/business/condition-requests/${enc(id)}`);
+  return toRequestDetail(data);
+}
+
+/** F-WREQ-05 요청 취소 — 접수 · 보완 요청 상태에서만 돼요 */
+export async function cancelRequest(id: string): Promise<void> {
+  if (USE_MOCK) {
+    const detail = MOCK_REQUEST_DETAILS[id];
+    if (!detail || !detail.canCancel) throw mockError('REQUEST_NOT_CANCELLABLE');
+    const at = new Date().toISOString();
+    Object.assign(detail, { status: 'CANCELED', canCancel: false, canResubmit: false, history: [...(detail.history ?? []), { action: 'CANCEL', status: 'CANCELED', at, by: 'BUSINESS', reason: null }] });
+    const row = MOCK_REQUESTS.find((r) => r.requestId === id);
+    if (row) Object.assign(row, { status: 'CANCELED', group: 'DONE' });
+    Object.values(MOCK_CONDITIONS).forEach((c) => {
+      c.pendingItems = (c.pendingItems ?? []).filter((p) => p.requestId !== id);
+    });
+    await mockResponse({ requestId: id, status: 'CANCELED', canceledAt: at });
+    return;
+  }
+  // 입장 조건 요청 취소 — PATCH /business/condition-requests/{requestId} { action: "CANCEL" }
+  await apiClient.patch(`/business/condition-requests/${enc(id)}`, { action: "CANCEL" });
+}

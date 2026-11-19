@@ -1,0 +1,76 @@
+.group {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.item {
+  border: 0;
+  background: transparent;
+  font-size: var(--font-size-md);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.on {
+  font-weight: 600;
+}
+
+/* 회색 바 + 흰 버튼 */
+.segment {
+  align-self: flex-start;
+  padding: 4px;
+  gap: 2px;
+  background: #e9ebef;
+  border-radius: var(--radius-md);
+}
+
+.segment .item {
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: var(--radius-sm);
+}
+
+.segment .on {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+/* 검정 탭 */
+.pill {
+  gap: 4px;
+}
+
+.pill .item {
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: var(--radius-sm);
+}
+
+.pill .item:hover:not(.on) {
+  background: var(--color-surface-subtle);
+}
+
+.pill .on {
+  background: var(--color-text);
+  color: var(--color-text-inverse);
+}
+
+/* 테두리 알약 (운영자) */
+.outline {
+  gap: var(--space-2);
+}
+
+.outline .item {
+  min-height: 36px;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+}
+
+.outline .on {
+  border-color: var(--color-admin-nav);
+  background: var(--color-admin-nav);
+  color: var(--color-text-inverse);
+}

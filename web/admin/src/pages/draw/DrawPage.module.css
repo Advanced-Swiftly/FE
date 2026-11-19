@@ -1,0 +1,159 @@
+/* 추첨 실행 버튼 + 사유 */
+.runRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.reasonBlocked {
+  font-size: var(--font-size-sm);
+  color: var(--color-danger);
+}
+
+.reasonOk {
+  font-size: var(--font-size-sm);
+  color: var(--color-success);
+}
+
+/* 추첨 결과 숫자 4칸 */
+.runStats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.runStats > div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-subtle);
+}
+
+.runStats span {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.runStats strong {
+  font-size: var(--font-size-xl);
+}
+
+.runStats .won {
+  color: var(--color-success);
+}
+
+@media (max-width: 720px) {
+  .runStats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* 상품 목록 */
+.prizes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.prizes li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.prizes li:last-child {
+  border-bottom: 0;
+}
+
+.prizeIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-sm);
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  flex-shrink: 0;
+}
+
+.prizeName {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 응모 목록 */
+.filters {
+  padding: 0 var(--space-6) var(--space-4);
+}
+
+.table {
+  min-width: 820px;
+}
+
+.empty {
+  padding: var(--space-8) var(--space-6);
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.foot {
+  margin: 0;
+  padding: var(--space-3) var(--space-6);
+  border-top: 1px solid var(--color-divider);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+/* 연락 기록 팝업 */
+.contacts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.contacts li {
+  padding: var(--space-3) 14px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-subtle);
+}
+
+.contacts p {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-secondary);
+}
+
+.contactHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.by {
+  margin-left: auto;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: var(--space-3);
+}
+
+.more {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-3);
+}

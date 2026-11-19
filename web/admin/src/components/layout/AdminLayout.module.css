@@ -1,0 +1,17 @@
+.shell {
+  display: flex;
+  flex-wrap: wrap;
+  min-height: 100vh;
+}
+
+.main {
+  flex: 999 1 560px;
+  min-width: 0;
+  padding: var(--space-8) var(--space-10) 48px;
+}
+
+@media (max-width: 720px) {
+  .main {
+    padding: var(--space-6) var(--space-4) var(--space-10);
+  }
+}

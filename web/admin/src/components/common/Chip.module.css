@@ -1,0 +1,28 @@
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.withIcon {
+  gap: 6px;
+  padding: 4px 10px;
+}
+
+/* 요청 처리 상태 */
+.received { color: var(--status-received-fg); background: var(--status-received-bg); }
+.review { color: var(--status-review-fg); background: var(--status-review-bg); }
+.approved { color: var(--status-approved-fg); background: var(--status-approved-bg); }
+.rejected { color: var(--status-rejected-fg); background: var(--status-rejected-bg); }
+.revise { color: var(--status-revise-fg); background: var(--status-revise-bg); }
+.canceled { color: var(--color-text-muted); background: var(--color-surface); box-shadow: inset 0 0 0 1px var(--color-border-strong); }
+
+/* 입장 판정 */
+.ok { color: var(--judge-ok-fg); background: var(--judge-ok-bg); }
+.prep { color: var(--judge-prep-fg); background: var(--judge-prep-bg); }
+.no { color: var(--judge-no-fg); background: var(--judge-no-bg); }
+.unknown { color: var(--judge-unknown-fg); background: var(--judge-unknown-bg); }
