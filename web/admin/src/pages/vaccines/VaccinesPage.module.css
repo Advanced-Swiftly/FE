@@ -181,3 +181,7 @@
   justify-content: center;
   padding: var(--space-3);
 }
+
+.fileActions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.certPdf, .certPdfLarge { width: 100%; min-height: 420px; border: 0; background: var(--color-surface); }
+.certPdfLarge { min-height: 70vh; }

@@ -182,7 +182,8 @@ export interface VaccineSubmission {
   status: VaccineStatus;
   fileName: string;
   /** 서류 파일 — 짧게 유효한 주소 (명세 F-OVAC-02 · 10분 [제안]) */
-  files: { fileId: string; kind: 'CERTIFICATE' | 'RECEIPT' | 'UNKNOWN'; url: string; urlExpiresAt: string | null }[];
+  files: { fileId: string; kind: 'CERTIFICATE' | 'RECEIPT' | 'UNKNOWN'; url: string; urlExpiresAt: string | null; contentType?: string; readError?: string }[];
+  verificationItems?: { vaccineCode: string; vaccinatedAt: string }[];
   fields: VaccineField[];
   /** 처리 결과 (완료 · 재제출 요청 뒤) */
   result?: string;

@@ -133,3 +133,16 @@ Type: commit title
 ```
 
 ex. `Feat: 로그인 기능 추가` ex. `Design: 로그인 화면 UI 수정` ex. `Fix: 버튼 클릭 오류 수정`
+
+### 예방접종 원본 검토
+
+운영자 상세 응답의 `dog`, `documents[].url/contentType/urlExpiresAt/readError`, `items`를 사용합니다.
+이미지·PDF·여러 첨부파일을 선택해 열 수 있으며, 주소가 만료되면 **첨부 다시 불러오기**로 갱신합니다.
+AI와 보호자가 수정한 백신·날짜를 구분하고, 서류가 열린 상태에서 항목을 확인한 뒤 확정 접종 목록을 전송합니다.
+파일이 없는 경우와 열람 주소 발급 실패는 구분합니다. 삭제된 반려견의 기록은 다시 업로드해야 합니다.
+
+데이터 변환 회귀 테스트(Node.js 22.18 이상):
+
+```bash
+node --test scripts/tests/vaccination-review.test.mjs
+```

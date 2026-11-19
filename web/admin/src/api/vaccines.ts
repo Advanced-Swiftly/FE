@@ -1,3 +1,4 @@
+import { mapVaccinationReview, reviewStatus, type VaccinationReviewDto } from './vaccinationReview';
 import { paginate, type Page } from '@/hooks/useCursorList';
 import { MOCK_VACCINES } from '@/mocks/vaccines';
 import type { VaccineField, VaccineListItem, VaccineStatus, VaccineSubmission } from '@/types';
@@ -40,17 +41,15 @@ export async function getVaccinePage(status: VaccineStatus, cursor: string | nul
   if (USE_MOCK) return mockResponse(paginate(MOCK_VACCINES.filter((v) => v.status === status).map(toListItem), cursor, 20));
   // 예방접종 검토 목록 — GET /admin/vaccination-records?status&page → { items: [{ recordId, dogName, status }] }
   // BE 목록은 검토할 상태(ANALYZED · NEEDS_MANUAL_REVIEW · OPERATOR_REVIEW)만 줘요. status 를 비우면 셋 다 와요 (20건씩, page 1부터).
-  // '확인 완료(VERIFIED)' · '재업로드 요청(REJECTED)' 은 목록에서 고를 수 없어 그 탭은 부르지 않아요 (백엔드 확인 사항).
-  if (status !== 'OPERATOR_REVIEW') throw mockError('FIELD_NOT_SUPPORTED', { field: 'status' });
   const pageNo = cursor ? Number(cursor) : 1;
-  const { data } = await apiClient.get<{ items?: VaccineListDto[] | null }>('/admin/vaccination-records', { params: { page: pageNo } });
+  const { data } = await apiClient.get<{ items?: VaccineListDto[] | null }>('/admin/vaccination-records', { params: { page: pageNo, ...(status === 'OPERATOR_REVIEW' ? {} : { status: status === 'REUPLOAD' ? 'REJECTED' : status }) } });
   const rows = data?.items ?? [];
   return {
     items: rows
       .map((d) => ({
         id: toId(d.recordId ?? d.docId) ?? '',
         // BE 검토 대기 상태 세 가지(ANALYZED · NEEDS_MANUAL_REVIEW · OPERATOR_REVIEW)는 화면의 '확인 대기' 하나로 봐요
-        status: (['ANALYZED', 'NEEDS_MANUAL_REVIEW', 'OPERATOR_REVIEW'].includes(String(d.status)) ? 'OPERATOR_REVIEW' : d.status) as VaccineStatus,
+        status: reviewStatus(d.status),
         dogName: d.dogName ?? '',
         owner: d.guardian?.name ?? '',
         appliedAt: d.appliedAt ?? '',
@@ -87,10 +86,8 @@ export async function getVaccineDetail(id: string): Promise<VaccineSubmission> {
     if (!v) throw mockError('NOT_FOUND');
     return mockResponse(v);
   }
-  // 예방접종 검토 상세 — GET /admin/vaccination-records/{recordId} → { recordId, documents: [{ documentId }], items: [{ vaccineCode, confidence }] }
-  // 반려견 · 보호자 · 증명서 이미지 주소 · 입력값 대조는 응답 예시에 없어요 (백엔드 확인 사항).
-  // AI 추출 항목은 보여 주되, 대조 결과가 없으니 '일치'로 보지 않아 확인 완료는 막혀요 (재제출 요청은 가능).
-  const { data } = await apiClient.get<VaccineDetailDto & { recordId?: string | number; documents?: { documentId: string | number }[]; items?: { vaccineCode: string; confidence?: number }[] }>(
+  // 원본 문서 URL은 운영자 상세를 다시 조회할 때마다 갱신돼요.
+  const { data } = await apiClient.get<VaccineDetailDto & VaccinationReviewDto>(
     `/admin/vaccination-records/${encodeURIComponent(id)}`,
   );
   if (data.dog && data.fields) {
@@ -103,32 +100,18 @@ export async function getVaccineDetail(id: string): Promise<VaccineSubmission> {
       owner: data.guardian?.name ?? '',
       vaccine: text(data.fields.items?.value ?? null) ?? '',
       appliedAt: data.appliedAt,
-      status: data.status,
+      status: reviewStatus(data.status),
       fileName: data.files?.[0] ? `증명서 ${data.files[0].fileId}` : '첨부 없음',
       files: data.files ?? [],
       fields: keys.map((k) => ({ key: k, label: FIELD_LABEL[k], aiValue: text(data.fields[k]?.aiValue ?? null), value: text(data.fields[k]?.value ?? null), edited: Boolean(data.fields[k]?.edited), match: Boolean(data.fields[k]?.match) })),
       result: data.result,
     };
   }
-  const codes = (data.items ?? []).map((x) => (typeof x.confidence === 'number' ? `${x.vaccineCode} (AI 신뢰도 ${Math.round(x.confidence * 100)}%)` : x.vaccineCode));
-  return {
-    id: toId(data.recordId) ?? id,
-    dogName: '',
-    breed: '',
-    weightKg: 0,
-    owner: '',
-    vaccine: (data.items ?? []).map((x) => x.vaccineCode).join(', '),
-    appliedAt: '',
-    status: data.status ?? 'OPERATOR_REVIEW',
-    fileName: (data.documents ?? []).length ? `증명서 ${(data.documents ?? []).map((d) => d.documentId).join(', ')} (이미지 주소 없음)` : '첨부 없음',
-    files: [],
-    fields: [{ key: 'items', label: FIELD_LABEL.items, aiValue: codes.length ? codes.join(', ') : null, value: null, edited: false, match: false }],
-    result: undefined,
-  };
+  return mapVaccinationReview(data, id);
 }
 
 /** F-OVAC-03 확인 완료 또는 재제출 요청 → 다음 문서 ID (nextDocId, 없으면 null) */
-export async function decideVaccine(id: string, decision: 'VERIFIED' | 'REUPLOAD', reason?: string): Promise<{ nextDocId: string | null }> {
+export async function decideVaccine(id: string, decision: 'VERIFIED' | 'REUPLOAD', reason?: string, items?: VaccineSubmission['verificationItems']): Promise<{ nextDocId: string | null }> {
   if (USE_MOCK) {
     const v = MOCK_VACCINES.find((x) => x.id === id);
     if (!v) throw mockError('NOT_FOUND');
@@ -141,9 +124,9 @@ export async function decideVaccine(id: string, decision: 'VERIFIED' | 'REUPLOAD
     return { nextDocId: res.nextDocId };
   }
   const scope = `vaccine:${id}`;
-  const key = idemKeys.get(scope, { decision, reason });
+  const key = idemKeys.get(scope, { decision, reason, items });
   // 예방접종 검토 처리 — PATCH /admin/vaccination-records/{recordId} { action: VERIFY | NEEDS_MORE | REQUEST_REUPLOAD, comment?, items? }
-  const body = decision === 'REUPLOAD' ? { action: 'REQUEST_REUPLOAD', comment: reason } : { action: 'VERIFY' };
+  const body = decision === 'REUPLOAD' ? { action: 'REQUEST_REUPLOAD', comment: reason } : { action: 'VERIFY', ...(items?.length ? { items } : {}) };
   const { data } = await apiClient.patch<{ recordId?: string | number; status?: string; nextDocId?: string | number | null }>(
     `/admin/vaccination-records/${encodeURIComponent(id)}`,
     body,
