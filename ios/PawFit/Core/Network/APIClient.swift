@@ -55,16 +55,23 @@ actor APIClient {
     // MARK: - 내부
 
     private func perform<R>(_ endpoint: Endpoint<R>) async throws -> R {
+        try Task.checkCancellation()
         let request = try makeRequest(endpoint)
         let data: Data
         let response: HTTPURLResponse
         do {
             (data, response) = try await transport.send(request)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as URLError where error.code == .cancelled {
+            throw CancellationError()
         } catch let error as APIError {
             throw error
         } catch {
+            try Task.checkCancellation()
             throw APIError.network
         }
+        try Task.checkCancellation()
         return try Self.decode(R.self, data: data, response: response)
     }
 

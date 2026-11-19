@@ -83,14 +83,15 @@ struct MapHomeView: View {
             .sheet(isPresented: $showCriteria) { CriteriaSheet() }
             .animation(.snappy(duration: 0.25), value: showDogMenu)
             .animation(.snappy(duration: 0.25), value: showPublicMenu)
-            .task(id: store.revision) { await load() }
+            .onChange(of: store.revision) { scheduleLoad() }
             .onChange(of: store.basis) { scheduleLoad() }
             .onChange(of: category) { scheduleLoad() }
             .onChange(of: focusPlaceId) {
                 if let id = focusPlaceId { path = NavigationPath([id]); focusPlaceId = nil }
             }
             .toast($errorMessage)
-            .onAppear { location.request() }
+            .onAppear { location.request(); scheduleLoad() }
+            .onDisappear { loadTask?.cancel() }
         }
     }
 
@@ -327,9 +328,16 @@ struct MapHomeView: View {
 
     private func load() async {
         do {
-            places = try await store.api.mapPlaces(latitude: center.latitude, longitude: center.longitude,
+            let result = try await store.api.mapPlaces(latitude: center.latitude, longitude: center.longitude,
                                                    radiusM: Int(radius), category: category, dogIds: store.basisDogIds)
+            try Task.checkCancellation()
+            places = result
+            errorMessage = nil
+        } catch is CancellationError {
+            // 지도 이동으로 교체된 조회는 오류 안내 없이 종료한다.
+            return
         } catch {
+            guard !Task.isCancelled else { return }
             errorMessage = APIError.message(error)
         }
     }
